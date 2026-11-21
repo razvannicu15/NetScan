@@ -13,6 +13,7 @@ import 'port_scan_page.dart';
 import 'security_page.dart';
 import 'speed_test_page.dart';
 import 'traceroute_page.dart';
+import 'wifi_analyzer_page.dart';
 import 'widgets.dart';
 
 class ToolsPage extends StatelessWidget {
@@ -27,6 +28,9 @@ class ToolsPage extends StatelessWidget {
       (Icons.videocam_outlined, tr('Camere ascunse', 'Hidden cameras'),
           tr('Camere video din rețeaua ta', 'Video cameras on your network'),
           () => const CamerasPage()),
+      (Icons.wifi_find, tr('Analizor Wi-Fi', 'Wi-Fi analyzer'),
+          tr('Rețele din jur, canale, semnal', 'Nearby networks, channels, signal'),
+          () => const WifiAnalyzerPage()),
       (Icons.speed, 'Speed test',
           tr('Viteză internet: download, upload, ping', 'Internet speed: download, upload, ping'),
           () => const SpeedTestPage()),

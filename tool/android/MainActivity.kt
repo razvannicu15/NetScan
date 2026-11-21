@@ -22,6 +22,13 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "requestLocation" -> requestLocation(result)
                     "locationEnabled" -> result.success(locationEnabled())
+                    "scan" -> {
+                        try {
+                            result.success(scanResults(call.argument<Boolean>("trigger") ?: false))
+                        } catch (e: Exception) {
+                            result.error("ERR", e.message, null)
+                        }
+                    }
                     "info" -> {
                         try {
                             result.success(wifiInfo())
@@ -103,5 +110,32 @@ class MainActivity : FlutterActivity() {
         map["gateway"] = d?.gateway
         map["netmask"] = d?.netmask
         return map
+    }
+
+    @Suppress("DEPRECATION")
+    private fun scanResults(trigger: Boolean): ArrayList<HashMap<String, Any?>> {
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        if (trigger) {
+            try {
+                wm.startScan()
+            } catch (e: Exception) {
+            }
+        }
+        val out = ArrayList<HashMap<String, Any?>>()
+        for (r in wm.scanResults) {
+            val m = HashMap<String, Any?>()
+            m["ssid"] = r.SSID
+            m["bssid"] = r.BSSID
+            m["level"] = r.level
+            m["frequency"] = r.frequency
+            m["caps"] = r.capabilities
+            if (Build.VERSION.SDK_INT >= 23) {
+                m["width"] = r.channelWidth
+                m["center0"] = r.centerFreq0
+            }
+            if (Build.VERSION.SDK_INT >= 30) m["standard"] = r.wifiStandard
+            out.add(m)
+        }
+        return out
     }
 }
