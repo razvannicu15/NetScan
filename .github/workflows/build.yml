@@ -30,10 +30,10 @@ jobs:
       - name: Generate Android platform files
         run: flutter create --platforms=android --org ro.netscan --project-name netscan .
 
-      - name: Patch manifest / app name
-        run: python3 tool/patch_platforms.py
-
       - run: flutter pub get
+
+      - name: Patch manifest / app name
+        run: dart run tool/patch_platforms.dart
 
       - name: App icons
         run: dart run flutter_launcher_icons
@@ -71,10 +71,10 @@ jobs:
       - name: Generate Windows platform files
         run: flutter create --platforms=windows --org ro.netscan --project-name netscan .
 
-      - name: Patch app name
-        run: python tool/patch_platforms.py
-
       - run: flutter pub get
+
+      - name: Patch app name
+        run: dart run tool/patch_platforms.dart
 
       - name: App icons
         run: dart run flutter_launcher_icons

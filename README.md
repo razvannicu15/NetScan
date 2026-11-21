@@ -31,8 +31,8 @@ Local (cu Flutter instalat):
 
 ```bash
 flutter create --platforms=android,windows --org ro.netscan --project-name netscan .
-python tool/patch_platforms.py
 flutter pub get
+dart run tool/patch_platforms.dart
 dart run flutter_launcher_icons
 flutter build apk --release      # sau: flutter build windows --release
 ```
