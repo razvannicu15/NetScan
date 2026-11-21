@@ -2,3 +2,4 @@
 *.gz binary
 *.png binary
 *.ps1 text eol=crlf
+*.keystore binary

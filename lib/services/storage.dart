@@ -122,7 +122,12 @@ class DeviceHistory {
 
   bool get isEmpty => _byNetwork.values.every((m) => m.isEmpty);
 
-  Future<void> save() async {
+  Future<void> _pendingSave = Future<void>.value();
+
+  /// Saves are queued so two writes never overlap.
+  Future<void> save() => _pendingSave = _pendingSave.then((_) => _write());
+
+  Future<void> _write() async {
     await Storage.instance.writeJson('devices.json', {
       for (final e in _byNetwork.entries)
         e.key: {for (final d in e.value.entries) d.key: d.value.toJson()},

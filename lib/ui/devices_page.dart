@@ -11,7 +11,7 @@ import 'widgets.dart';
 
 enum _Sort { ip, name, vendor, type }
 
-enum _View { all, unknown, cameras }
+enum _View { all, fresh, unknown, cameras }
 
 class DevicesPage extends StatefulWidget {
   const DevicesPage({super.key});
@@ -25,6 +25,7 @@ class _DevicesPageState extends State<DevicesPage> {
   _Sort _sort = _Sort.ip;
   bool _showOffline = false;
   _View _view = _View.all;
+  int _seenSerial = 0;
 
   List<Device> _filter(List<Device> list) {
     final q = _query.trim().toLowerCase();
@@ -68,10 +69,34 @@ class _DevicesPageState extends State<DevicesPage> {
       builder: (context, _) {
         final unknown = scanner.unknownDevices;
         final cameras = scanner.cameras;
+        final fresh = scanner.newDevices;
+        if (scanner.scanSerial != _seenSerial) {
+          _seenSerial = scanner.scanSerial;
+          final n = scanner.newCount;
+          if (n > 0) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(SnackBar(
+                  duration: const Duration(seconds: 8),
+                  content: Text(n == 1
+                      ? tr('Un dispozitiv nou în rețea', 'One new device on the network')
+                      : tr('$n dispozitive noi în rețea', '$n new devices on the network')),
+                  action: SnackBarAction(
+                    label: tr('Vezi', 'Show'),
+                    onPressed: () => setState(() => _view = _View.fresh),
+                  ),
+                ));
+            });
+          }
+        }
+        if (_view == _View.fresh && fresh.isEmpty) _view = _View.all;
         if (_view == _View.unknown && unknown.isEmpty) _view = _View.all;
         if (_view == _View.cameras && cameras.isEmpty) _view = _View.all;
         final online = _filter(switch (_view) {
           _View.all => scanner.devices,
+          _View.fresh => fresh,
           _View.unknown => unknown,
           _View.cameras => cameras,
         });
@@ -181,6 +206,18 @@ class _DevicesPageState extends State<DevicesPage> {
                               selected: _view == _View.all,
                               onSelected: (_) => setState(() => _view = _View.all),
                             ),
+                            if (fresh.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                avatar: Icon(Icons.fiber_new_outlined,
+                                    size: 18,
+                                    color: Theme.of(context).colorScheme.primary),
+                                label: Text('${tr('Noi', 'New')} · ${fresh.length}'),
+                                selected: _view == _View.fresh,
+                                onSelected: (_) =>
+                                    setState(() => _view = _View.fresh),
+                              ),
+                            ],
                             if (unknown.isNotEmpty) ...[
                               const SizedBox(width: 8),
                               ChoiceChip(
@@ -649,8 +686,9 @@ class _DeviceTile extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     final d = device;
     final sub = [
+      if (d.isSelf) tr('Tu', 'You'),
       d.ip,
-      if (d.vendor != null) d.vendor!,
+      if (d.vendor != null && d.vendor != d.displayName) d.vendor!,
     ].join(' · ');
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
@@ -670,45 +708,21 @@ class _DeviceTile extends StatelessWidget {
               children: [
                 Opacity(
                   opacity: d.online ? 1 : 0.6,
-                  child: DeviceAvatar(device: d),
+                  child: _BadgedAvatar(
+                    device: d,
+                    unknown: scanner.usesKnown && !d.known && !d.isSelf && d.online,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              d.displayName,
-                              style: tt.titleMedium,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (d.isSelf) ...[
-                            const SizedBox(width: 6),
-                            TagChip(tr('TU', 'YOU')),
-                          ],
-                          if (d.isGateway) ...[
-                            const SizedBox(width: 6),
-                            TagChip('ROUTER',
-                                color: cs.tertiaryContainer,
-                                onColor: cs.onTertiaryContainer),
-                          ],
-                          if (scanner.usesKnown && !d.known && !d.isSelf && d.online) ...[
-                            const SizedBox(width: 6),
-                            TagChip(tr('NECUNOSCUT', 'UNKNOWN'),
-                                color: cs.errorContainer,
-                                onColor: cs.onErrorContainer),
-                          ],
-                          if (d.isNew) ...[
-                            const SizedBox(width: 6),
-                            TagChip(tr('NOU', 'NEW'),
-                                color: cs.errorContainer,
-                                onColor: cs.onErrorContainer),
-                          ],
-                        ],
+                      Text(
+                        d.displayName,
+                        style: tt.titleMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -785,6 +799,63 @@ class _EmptyState extends StatelessWidget {
             style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
             textAlign: TextAlign.center,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Device icon with a tiny status badge: red "?" = unknown, blue dot = new.
+class _BadgedAvatar extends StatelessWidget {
+  const _BadgedAvatar({required this.device, required this.unknown});
+  final Device device;
+  final bool unknown;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(left: 0, top: 0, child: DeviceAvatar(device: device)),
+          if (unknown)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Tooltip(
+                message: tr('Necunoscut', 'Unknown'),
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: cs.error,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: cs.surfaceContainerLow, width: 2),
+                  ),
+                  child: Icon(Icons.question_mark, size: 10, color: cs.onError),
+                ),
+              ),
+            ),
+          if (device.isNew)
+            Positioned(
+              right: 0,
+              top: 0,
+              child: Tooltip(
+                message: tr('Nou', 'New'),
+                child: Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: cs.primary,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: cs.surfaceContainerLow, width: 2),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

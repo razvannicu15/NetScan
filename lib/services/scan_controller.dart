@@ -333,15 +333,43 @@ class ScanController extends ChangeNotifier {
     _finish(net, known, cancelled: cancel.isCancelled);
   }
 
+  /// Finds the remembered entry for [d]: by MAC, then by IP.
+  Device? _match(Map<String, Device> known, Device d) {
+    final mac = d.mac;
+    if (mac != null) {
+      final m = known[mac];
+      if (m != null) return m;
+    }
+    final byIp = known['ip:${d.ip}'];
+    if (byIp != null) return byIp;
+    if (mac == null) {
+      for (final k in known.values) {
+        if (k.ip == d.ip) return k;
+      }
+    }
+    return null;
+  }
+
+  /// Incremented after every finished scan; [newCount] = new devices in it.
+  int scanSerial = 0;
+  int newCount = 0;
+
+  List<Device> get newDevices => devices.where((x) => x.isNew).toList();
+
   void _finish(LocalNetwork net, Map<String, Device> known,
       {bool cancelled = false}) {
     final now = DateTime.now();
     final isFirstScan = known.isEmpty;
     for (final d in _devices.values) {
       d.vendor ??= OuiService.instance.lookup(d.mac);
-      final prev = known[d.storeKey] ??
-          (d.mac == null ? null : known['ip:${d.ip}']);
+      final prev = _match(known, d);
       if (prev != null) {
+        // Same device seen before: keep identity even if this scan missed the MAC.
+        if (d.mac == null && prev.mac != null) {
+          d.mac = prev.mac;
+          d.vendor ??= prev.vendor ?? OuiService.instance.lookup(prev.mac);
+        }
+        if (prev.storeKey != d.storeKey) known.remove(prev.storeKey);
         d.customName = prev.customName;
         d.known = prev.known;
         d.firstSeen = prev.firstSeen;
@@ -355,6 +383,8 @@ class ScanController extends ChangeNotifier {
       known[d.storeKey] = d;
     }
     history.save();
+    newCount = cancelled ? 0 : _devices.values.where((d) => d.isNew).length;
+    scanSerial++;
     phase = ScanPhase.done;
     lastScan = now;
     final n = _devices.length;
@@ -391,6 +421,7 @@ class ScanController extends ChangeNotifier {
 
   Future<void> setKnown(Device d, bool known) async {
     d.known = known;
+    if (known) d.isNew = false;
     final net = network;
     if (net != null) {
       history.forNetwork(net.id)[d.storeKey] = d;

@@ -52,10 +52,7 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
 
   Future<void> _toggleKnown() async {
     await scanner.setKnown(d, !d.known);
-    if (!mounted) return;
-    setState(() {});
-    toast(context,
-        d.known ? tr('Marcat ca cunoscut', 'Marked as known') : tr('Marcat ca necunoscut', 'Marked as unknown'));
+    if (mounted) setState(() {});
   }
 
   Future<void> _wake() async {
@@ -104,7 +101,6 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     final tt = Theme.of(context).textTheme;
     final ports = d.allKnownPorts.toList()..sort();
     final web = ports.where((p) => kHttpPorts.contains(p) || kHttpsPorts.contains(p)).toList();
-    final showUnknown = scanner.usesKnown && !d.known && !d.isSelf;
 
     final essentials = <InfoRow>[
       InfoRow(Icons.lan_outlined, 'IP', d.ip),
@@ -146,13 +142,6 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     return Scaffold(
       appBar: AppBar(
         actions: [
-          if (!d.isSelf)
-            IconButton(
-              tooltip: d.known ? tr('Cunoscut', 'Known') : tr('Marchează ca cunoscut', 'Mark as known'),
-              onPressed: _toggleKnown,
-              icon: Icon(d.known ? Icons.verified_user : Icons.verified_user_outlined,
-                  color: d.known ? cs.primary : null),
-            ),
           IconButton(
             tooltip: tr('Redenumește', 'Rename'),
             icon: const Icon(Icons.edit_outlined),
@@ -212,10 +201,6 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                     if (d.isSelf) TagChip(tr('ACEST DISPOZITIV', 'THIS DEVICE')),
                     if (d.isGateway)
                       TagChip('GATEWAY', color: cs.tertiaryContainer, onColor: cs.onTertiaryContainer),
-                    if (d.known && !d.isSelf) TagChip(tr('CUNOSCUT', 'KNOWN')),
-                    if (showUnknown)
-                      TagChip(tr('NECUNOSCUT', 'UNKNOWN'),
-                          color: cs.errorContainer, onColor: cs.onErrorContainer),
                     if (d.isNew)
                       TagChip(tr('NOU', 'NEW'), color: cs.errorContainer, onColor: cs.onErrorContainer),
                   ]),
@@ -236,6 +221,29 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                     ],
                   ),
                 ),
+
+                // ---------------------------------------------- known switch
+                if (!d.isSelf) ...[
+                  const SizedBox(height: 12),
+                  TableCard(children: [
+                    SwitchListTile(
+                      dense: true,
+                      secondary: Icon(
+                        d.known ? Icons.verified_user : Icons.help_outline,
+                        color: d.known ? cs.primary : cs.error,
+                      ),
+                      title: Text(tr('Dispozitiv cunoscut', 'Known device'),
+                          style: tt.titleSmall),
+                      subtitle: Text(
+                          d.known
+                              ? tr('E al tău, nu mai e semnalat', 'Yours, no longer flagged')
+                              : tr('Bifează dacă îl recunoști', 'Turn on if you recognise it'),
+                          style: tt.bodySmall),
+                      value: d.known,
+                      onChanged: (_) => _toggleKnown(),
+                    ),
+                  ]),
+                ],
 
                 // ---------------------------------------------- essentials
                 const SizedBox(height: 12),
