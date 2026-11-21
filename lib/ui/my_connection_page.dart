@@ -54,6 +54,11 @@ class MyConnectionPage extends StatefulWidget {
 
 class _MyConnectionPageState extends State<MyConnectionPage> {
   LiveSample? _s;
+  NetConnection? _conn;
+  CellReading? _cell;
+  int _ticks = 0;
+
+  bool get _mobile => _conn?.kind == NetKind.cellular;
   final List<(DateTime, double)> _signal = [];
   final _router = _PingStats();
   final _internet = _PingStats();
@@ -76,6 +81,23 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
   }
 
   Future<void> _readSignal() async {
+    if (_ticks++ % 10 == 0) {
+      final c = await NetConnection.current();
+      if (!mounted) return;
+      if (c.kind != _conn?.kind) _signal.clear();
+      _conn = c;
+    }
+    if (_mobile) {
+      final c = await CellReading.read();
+      if (!mounted) return;
+      final now = DateTime.now();
+      if (c?.dbm != null) {
+        _signal.add((now, c!.dbm!.toDouble()));
+        _signal.removeWhere((p) => now.difference(p.$1).inSeconds > 65);
+      }
+      setState(() => _cell = c);
+      return;
+    }
     final s = await LiveWifi.read();
     if (!mounted || s == null) return;
     final now = DateTime.now();
@@ -93,7 +115,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
   Future<void> _doPing() async {
     if (_pinging) return;
     _pinging = true;
-    final gw = scanner.network?.gateway;
+    final gw = _mobile ? null : scanner.network?.gateway;
     final res = await Future.wait([
       gw == null
           ? Future.value(PingResult(false))
@@ -134,6 +156,17 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
   /// Plain-language diagnosis from both ping targets.
   (IconData, String, Color)? _verdict(ColorScheme cs) {
     if (_internet.points.length < 8) return null;
+    if (_mobile) {
+      final bad = _internet.loss > 5 || (_internet.avg ?? 0) > 150;
+      return bad
+          ? (Icons.signal_cellular_connected_no_internet_4_bar,
+              tr('Internetul mobil are întârzieri sau pierderi. Semnal slab sau rețea aglomerată.',
+                  'Mobile internet has lag or loss. Weak signal or a busy network.'),
+              Colors.orange.shade700)
+          : (Icons.check_circle_outline,
+              tr('Conexiune mobilă stabilă.', 'Stable mobile connection.'),
+              Colors.green.shade600);
+    }
     final rLoss = _router.loss, iLoss = _internet.loss;
     final rAvg = _router.avg ?? 0, iAvg = _internet.avg ?? 0;
     final routerBad = rLoss > 5 || rAvg > 30;
@@ -155,8 +188,21 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final s = _s;
-    final rssi = s?.rssi;
+    final rssi = _mobile ? _cell?.dbm : s?.rssi;
     final verdict = _verdict(cs);
+    final mobile = _mobile;
+    Color sigColor(int v) => mobile
+        ? (v >= -90 ? Colors.green.shade600 : v >= -105 ? Colors.orange.shade700 : cs.error)
+        : _rssiColor(v, cs);
+    String sigLabel(int v) => mobile
+        ? (v >= -85
+            ? tr('excelent', 'excellent')
+            : v >= -95
+                ? tr('bun', 'good')
+                : v >= -105
+                    ? tr('slab', 'weak')
+                    : tr('foarte slab', 'very weak'))
+        : _quality(v);
 
     return Scaffold(
       appBar: AppBar(title: Text(tr('Conexiunea mea', 'My connection'))),
@@ -178,26 +224,32 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.wifi, size: 30, color: rssi == null ? cs.onSurfaceVariant : _rssiColor(rssi, cs)),
+                      Icon(mobile ? Icons.signal_cellular_alt : Icons.wifi,
+                          size: 30, color: rssi == null ? cs.onSurfaceVariant : sigColor(rssi)),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(s?.ssid ?? scanner.wifi?.ssid ?? 'Wi-Fi',
+                            Text(mobile ? (_conn?.label(tr) ?? '') : (s?.ssid ?? scanner.wifi?.ssid ?? 'Wi-Fi'),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
                             const SizedBox(height: 2),
                             Text(
-                              [
+                              mobile
+                                  ? [
+                                      if (_cell?.gen != null) _cell!.gen!,
+                                      if (_cell?.level != null) '${tr('nivel', 'level')} ${_cell!.level}/4',
+                                    ].join(' · ')
+                                  : [
                                 if (s?.band != null) s!.band!,
                                 if (s?.channel != null) '${tr('canal', 'ch')} ${s!.channel}',
                                 if (s?.linkMbps != null) '${s!.linkMbps} Mbps',
                               ].join(' · '),
                               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                             ),
-                            if (s?.bssid != null)
+                            if (!mobile && s?.bssid != null)
                               Text('AP ${s!.bssid}',
                                   style: tt.bodySmall?.copyWith(
                                       color: cs.onSurfaceVariant,
@@ -216,13 +268,13 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                                 '${v.round()}',
                                 style: tt.displaySmall?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: _rssiColor(rssi, cs),
+                                  color: sigColor(rssi),
                                   fontFeatures: const [FontFeature.tabularFigures()],
                                 ),
                               ),
                             ),
-                            Text('dBm · ${_quality(rssi)}',
-                                style: tt.labelMedium?.copyWith(color: _rssiColor(rssi, cs))),
+                            Text('dBm · ${sigLabel(rssi)}',
+                                style: tt.labelMedium?.copyWith(color: sigColor(rssi))),
                           ],
                         ),
                     ],
@@ -249,12 +301,12 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                   ),
                   child: _tab == 0
                       ? LiveChart(
-                          minY: -90,
-                          maxY: -20,
+                          minY: mobile ? -130 : -90,
+                          maxY: mobile ? -50 : -20,
                           yStep: 10,
                           series: [
                             ChartSeries(
-                              color: rssi == null ? cs.primary : _rssiColor(rssi, cs),
+                              color: rssi == null ? cs.primary : sigColor(rssi),
                               points: _signal,
                               width: 3,
                               fill: true,
@@ -267,7 +319,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                           yStep: _latencyMax() / 4,
                           yFormat: (v) => '${v.round()}',
                           series: [
-                            ChartSeries(color: cs.primary, points: _router.points, width: 2.5),
+                            if (!mobile) ChartSeries(color: cs.primary, points: _router.points, width: 2.5),
                             ChartSeries(color: cs.tertiary, points: _internet.points, width: 2.5),
                           ],
                         ),
@@ -286,7 +338,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                   ],
                   children: [
                     for (final (label, color, st) in [
-                      ('Router', cs.primary, _router),
+                      if (!mobile) ('Router', cs.primary, _router),
                       ('Internet', cs.tertiary, _internet),
                     ])
                       TableDataRow(
@@ -327,6 +379,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                     ]),
                   ),
                 ],
+                if (!mobile) ...[
                 const SizedBox(height: 14),
                 FilledButton.tonalIcon(
                   onPressed: () => Navigator.push(context,
@@ -388,6 +441,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                         ),
                     ],
                   ),
+                ],
               ],
             ),
           ),

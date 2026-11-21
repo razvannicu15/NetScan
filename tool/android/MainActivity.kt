@@ -7,6 +7,12 @@ import android.location.LocationManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.telephony.CellSignalStrengthCdma
+import android.telephony.CellSignalStrengthGsm
+import android.telephony.CellSignalStrengthLte
+import android.telephony.CellSignalStrengthNr
+import android.telephony.CellSignalStrengthTdscdma
+import android.telephony.CellSignalStrengthWcdma
 import android.telephony.TelephonyManager
 import android.media.ToneGenerator
 import android.net.wifi.WifiManager
@@ -37,6 +43,13 @@ class MainActivity : FlutterActivity() {
                     "connection" -> {
                         try {
                             result.success(connection())
+                        } catch (e: Exception) {
+                            result.error("ERR", e.message, null)
+                        }
+                    }
+                    "cell" -> {
+                        try {
+                            result.success(cell())
                         } catch (e: Exception) {
                             result.error("ERR", e.message, null)
                         }
@@ -230,6 +243,32 @@ class MainActivity : FlutterActivity() {
             val tm = applicationContext.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
             m["operator"] = tm.networkOperatorName
         } catch (e: Exception) {
+        }
+        return m
+    }
+
+    private fun cell(): HashMap<String, Any?> {
+        val m = HashMap<String, Any?>()
+        val tm = applicationContext.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        m["operator"] = tm.networkOperatorName
+        if (Build.VERSION.SDK_INT >= 29) {
+            val list = tm.signalStrength?.cellSignalStrengths ?: emptyList()
+            val best = list.firstOrNull { it is CellSignalStrengthNr }
+                ?: list.firstOrNull { it is CellSignalStrengthLte }
+                ?: list.firstOrNull()
+            if (best != null) {
+                m["dbm"] = best.dbm
+                m["level"] = best.level
+                m["gen"] = when (best) {
+                    is CellSignalStrengthNr -> "5G"
+                    is CellSignalStrengthLte -> "4G"
+                    is CellSignalStrengthWcdma, is CellSignalStrengthTdscdma -> "3G"
+                    is CellSignalStrengthGsm, is CellSignalStrengthCdma -> "2G"
+                    else -> null
+                }
+            }
+        } else if (Build.VERSION.SDK_INT >= 28) {
+            m["level"] = tm.signalStrength?.level
         }
         return m
     }

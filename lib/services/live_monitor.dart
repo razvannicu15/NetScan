@@ -219,3 +219,32 @@ class NetConnection {
         NetKind.other => tr('Rețea', 'Network'),
       };
 }
+
+/// Mobile network reading (Android 10+: generation + dBm without extra permission).
+class CellReading {
+  CellReading({this.operator, this.gen, this.dbm, this.level});
+  final String? operator;
+  final String? gen; // 5G / 4G / 3G / 2G
+  final int? dbm;
+  final int? level; // 0..4
+
+  static const _ch = MethodChannel('netscan/wifi');
+
+  static Future<CellReading?> read() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final m = await _ch.invokeMapMethod<String, dynamic>('cell');
+      if (m == null) return null;
+      final d = m['dbm'] as int?;
+      final op = (m['operator'] as String?)?.trim();
+      return CellReading(
+        operator: (op == null || op.isEmpty) ? null : op,
+        gen: m['gen'] as String?,
+        dbm: (d != null && d < 0 && d > -150) ? d : null,
+        level: m['level'] as int?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}

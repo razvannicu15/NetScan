@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../core/utils.dart';
+import '../services/live_monitor.dart';
 import '../services/port_scanner.dart';
 import '../services/protocols.dart';
 import 'my_connection_page.dart';
@@ -586,6 +587,7 @@ class _NetInfoPageState extends State<NetInfoPage> {
   String? _publicIp;
   String? _isp;
   bool _loading = true;
+  CellReading? _cell;
 
   @override
   void initState() {
@@ -594,6 +596,11 @@ class _NetInfoPageState extends State<NetInfoPage> {
   }
 
   Future<void> _load() async {
+    if (scanner.noLan) {
+      CellReading.read().then((c) {
+        if (mounted) setState(() => _cell = c);
+      });
+    }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
       final req = await client.getUrl(Uri.parse('https://ipinfo.io/json'));
@@ -601,7 +608,7 @@ class _NetInfoPageState extends State<NetInfoPage> {
       final body = await res.transform(utf8.decoder).join();
       final j = jsonDecode(body) as Map<String, dynamic>;
       _publicIp = j['ip'] as String?;
-      _isp = [j['org'], j['city'], j['country']]
+      _isp = [(j['org'] as String?)?.replaceFirst(RegExp(r'^AS\d+\s+'), ''), j['city'], j['country']]
           .whereType<String>()
           .join(' · ');
     } catch (_) {
@@ -625,17 +632,33 @@ class _NetInfoPageState extends State<NetInfoPage> {
         width: 760,
         child: ListView(
           children: [
-            SectionHeader(tr('Rețea locală', 'Local network')),
-            TableCard(children: [
-              InfoRow(Icons.settings_ethernet, tr('Interfață', 'Interface'), net?.interfaceName),
-              InfoRow(Icons.lan_outlined, 'IP local', net?.ip),
-              InfoRow(Icons.fingerprint, tr('MAC propriu', 'Own MAC'), net?.selfMac),
-              InfoRow(Icons.account_tree_outlined, tr('Subrețea', 'Subnet'),
-                  net == null ? null : tr('${net.id}  (scanat: ${net.cidr})', '${net.id}  (scanned: ${net.cidr})')),
-              InfoRow(Icons.router_outlined, 'Gateway', net?.gateway),
-              InfoRow(Icons.campaign_outlined, 'Broadcast', net?.broadcast),
-              InfoRow(Icons.computer, tr('Nume dispozitiv', 'Device name'), Platform.localHostname),
-            ]),
+            if (scanner.noLan) ...[
+              SectionHeader(tr('Date mobile', 'Mobile data')),
+              TableCard(children: [
+                InfoRow(Icons.cell_tower, tr('Operator', 'Carrier'),
+                    _cell?.operator ?? scanner.connection?.operator, copy: false),
+                InfoRow(Icons.signal_cellular_alt, tr('Rețea', 'Network'), _cell?.gen, copy: false),
+                InfoRow(Icons.network_cell, tr('Semnal', 'Signal'),
+                    _cell?.dbm == null
+                        ? null
+                        : '${_cell!.dbm} dBm${_cell!.level != null ? ' · ${tr('nivel', 'level')} ${_cell!.level}/4' : ''}',
+                    copy: false),
+                InfoRow(Icons.lan_outlined, tr('IP în rețeaua operatorului', 'IP in carrier network'), net?.ip),
+              ]),
+            ] else ...[
+              SectionHeader(tr('Rețea locală', 'Local network')),
+              TableCard(children: [
+                InfoRow(Icons.wifi, 'Wi-Fi', scanner.wifi?.ssid),
+                InfoRow(Icons.settings_ethernet, tr('Interfață', 'Interface'), net?.interfaceName),
+                InfoRow(Icons.lan_outlined, 'IP local', net?.ip),
+                InfoRow(Icons.fingerprint, tr('MAC propriu', 'Own MAC'), net?.selfMac),
+                InfoRow(Icons.account_tree_outlined, tr('Subrețea', 'Subnet'), net?.id),
+                InfoRow(Icons.router_outlined, 'Gateway', net?.gateway),
+                InfoRow(Icons.campaign_outlined, 'Broadcast', net?.broadcast),
+                InfoRow(Icons.computer, tr('Nume dispozitiv', 'Device name'),
+                    Platform.localHostname == 'localhost' ? null : Platform.localHostname),
+              ]),
+            ],
             const SectionHeader('Internet'),
             if (_loading)
               const Padding(
