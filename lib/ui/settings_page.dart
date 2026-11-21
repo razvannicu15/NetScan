@@ -66,6 +66,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           const ButtonSegment(value: 'ro', label: Text('Română')),
                           const ButtonSegment(value: 'en', label: Text('English')),
                         ],
+                        showSelectedIcon: false,
                         selected: {appSettings.language},
                         onSelectionChanged: (v) =>
                             appSettings.update((x) => x.language = v.first),
@@ -78,17 +79,18 @@ class _SettingsPageState extends State<SettingsPage> {
                         segments: [
                           ButtonSegment(
                               value: ThemeMode.system,
-                              icon: Icon(Icons.brightness_auto_outlined),
-                              label: Text(tr('Sistem', 'System'))),
+                              tooltip: tr('Ca sistemul', 'System'),
+                              label: const Icon(Icons.brightness_auto_outlined)),
                           ButtonSegment(
                               value: ThemeMode.light,
-                              icon: Icon(Icons.light_mode_outlined),
-                              label: Text(tr('Luminos', 'Light'))),
+                              tooltip: tr('Luminos', 'Light'),
+                              label: const Icon(Icons.light_mode_outlined)),
                           ButtonSegment(
                               value: ThemeMode.dark,
-                              icon: Icon(Icons.dark_mode_outlined),
-                              label: Text(tr('Întunecat', 'Dark'))),
+                              tooltip: tr('Întunecat', 'Dark'),
+                              label: const Icon(Icons.dark_mode_outlined)),
                         ],
+                        showSelectedIcon: false,
                         selected: {appSettings.themeMode},
                         onSelectionChanged: (s) =>
                             appSettings.update((x) => x.themeMode = s.first),
