@@ -98,6 +98,8 @@ class SectionHeader extends StatelessWidget {
 }
 
 /// Row with label + selectable value + copy action.
+/// Key / value row rendered as a compact table line. Tap copies the value.
+/// Use inside [TableCard] (rows with empty values are skipped there).
 class InfoRow extends StatelessWidget {
   const InfoRow(this.icon, this.label, this.value, {super.key, this.copy = true});
   final IconData icon;
@@ -105,23 +107,179 @@ class InfoRow extends StatelessWidget {
   final String? value;
   final bool copy;
 
+  bool get visible => value != null && value!.isNotEmpty;
+
   @override
   Widget build(BuildContext context) {
-    if (value == null || value!.isEmpty) return const SizedBox.shrink();
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(label,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      subtitle: SelectableText(value!,
-          style: Theme.of(context).textTheme.bodyLarge),
-      trailing: copy
-          ? IconButton(
-              tooltip: tr('Copiază', 'Copy'),
-              icon: const Icon(Icons.copy_rounded, size: 20),
-              onPressed: () => copyText(context, value!),
-            )
-          : null,
+    if (!visible) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return InkWell(
+      onTap: copy ? () => copyText(context, value!) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18, color: cs.onSurfaceVariant),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 132,
+              child: Text(label,
+                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
+            ),
+            Expanded(
+              child: Text(value!,
+                  style: tt.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+            ),
+            if (copy)
+              Padding(
+                padding: const EdgeInsets.only(left: 6, top: 1),
+                child: Icon(Icons.copy_rounded,
+                    size: 15, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Rounded, subtle container that stacks rows with hairline dividers.
+class TableCard extends StatelessWidget {
+  const TableCard({super.key, required this.children, this.header, this.margin});
+  final List<Widget> children;
+  final List<TableCol>? header;
+  final EdgeInsetsGeometry? margin;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final rows =
+        children.where((w) => w is! InfoRow || w.visible).toList();
+    if (rows.isEmpty && header == null) return const SizedBox.shrink();
+    final divider = Divider(
+        height: 1, thickness: 1, color: cs.outlineVariant.withValues(alpha: 0.45));
+    return Container(
+      margin: margin ?? const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.35)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (header != null) TableHeaderRow(cols: header!),
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0 || header != null) divider,
+            rows[i],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Column definition for [TableHeaderRow] / [TableDataRow].
+class TableCol {
+  const TableCol(this.label, {this.flex = 1, this.width, this.align = TextAlign.left});
+  final String label;
+  final int flex;
+  final double? width;
+  final TextAlign align;
+}
+
+Widget _cell(TableCol c, Widget child) {
+  final aligned = Align(
+    alignment: c.align == TextAlign.right
+        ? Alignment.centerRight
+        : c.align == TextAlign.center
+            ? Alignment.center
+            : Alignment.centerLeft,
+    child: child,
+  );
+  return c.width != null
+      ? SizedBox(width: c.width, child: aligned)
+      : Expanded(flex: c.flex, child: aligned);
+}
+
+class TableHeaderRow extends StatelessWidget {
+  const TableHeaderRow({super.key, required this.cols});
+  final List<TableCol> cols;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final style = Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: cs.onSurfaceVariant,
+          letterSpacing: 0.6,
+          fontWeight: FontWeight.w600,
+        );
+    return Container(
+      color: cs.surfaceContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Row(
+        children: [
+          for (final c in cols)
+            _cell(c, Text(c.label.toUpperCase(), style: style)),
+        ],
+      ),
+    );
+  }
+}
+
+class TableDataRow extends StatelessWidget {
+  const TableDataRow({super.key, required this.cols, required this.cells, this.onTap, this.onLongPress});
+  final List<TableCol> cols;
+  final List<Widget> cells;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        child: Row(
+          children: [
+            for (var i = 0; i < cols.length; i++) _cell(cols[i], cells[i]),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Text helper for table cells.
+class CellText extends StatelessWidget {
+  const CellText(this.text,
+      {super.key, this.muted = false, this.bold = false, this.color, this.mono = false, this.maxLines = 1});
+  final String text;
+  final bool muted;
+  final bool bold;
+  final bool mono;
+  final Color? color;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Text(
+      text,
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: color ?? (muted ? cs.onSurfaceVariant : null),
+            fontWeight: bold ? FontWeight.w600 : null,
+            fontFeatures: const [FontFeature.tabularFigures()],
+            fontFamily: mono ? 'monospace' : null,
+          ),
     );
   }
 }

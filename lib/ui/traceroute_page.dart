@@ -109,7 +109,12 @@ class _TraceroutePageState extends State<TraceroutePage> {
               const LinearProgressIndicator(),
             ],
             const SizedBox(height: 8),
-            for (final h in _hops) _HopTile(hop: h),
+            if (_hops.isNotEmpty)
+              TableCard(
+                margin: EdgeInsets.zero,
+                header: _HopRow.cols,
+                children: [for (final h in _hops) _HopRow(hop: h)],
+              ),
             if (_message != null)
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -124,14 +129,20 @@ class _TraceroutePageState extends State<TraceroutePage> {
   }
 }
 
-class _HopTile extends StatelessWidget {
-  const _HopTile({required this.hop});
+class _HopRow extends StatelessWidget {
+  const _HopRow({required this.hop});
   final Hop hop;
+
+  static List<TableCol> get cols => [
+        const TableCol('#', width: 36),
+        TableCol(tr('Gazdă', 'Host'), flex: 5),
+        const TableCol('IP', flex: 4),
+        TableCol(tr('Timp', 'Time'), width: 64, align: TextAlign.right),
+      ];
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
     final h = hop;
     final ms = h.ms;
     final color = ms == null
@@ -141,26 +152,18 @@ class _HopTile extends StatelessWidget {
             : ms < 100
                 ? Colors.orange.shade700
                 : cs.error;
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-      leading: CircleAvatar(
-        backgroundColor:
-            h.reached ? cs.primary : cs.secondaryContainer,
-        foregroundColor:
-            h.reached ? cs.onPrimary : cs.onSecondaryContainer,
-        child: Text('${h.ttl}',
-            style: const TextStyle(fontWeight: FontWeight.w700)),
-      ),
-      title: Text(h.ip == null ? '* * *' : (h.host ?? h.ip!),
-          overflow: TextOverflow.ellipsis),
-      subtitle: h.ip == null
-          ? Text(tr('Fără răspuns', 'No reply'))
-          : h.host != null
-              ? Text(h.ip!)
-              : null,
-      trailing: Text(ms == null ? '' : '${ms.toStringAsFixed(ms < 10 ? 1 : 0)} ms',
-          style: tt.titleSmall?.copyWith(color: color)),
+    return TableDataRow(
+      cols: cols,
       onLongPress: h.ip == null ? null : () => copyText(context, h.ip!),
+      cells: [
+        CellText('${h.ttl}', muted: !h.reached, bold: h.reached,
+            color: h.reached ? cs.primary : null),
+        CellText(h.ip == null ? tr('fără răspuns', 'no reply') : (h.host ?? '—'),
+            muted: h.ip == null || h.host == null),
+        CellText(h.ip ?? '* * *', muted: h.ip == null),
+        CellText(ms == null ? '—' : '${ms.toStringAsFixed(ms < 10 ? 1 : 0)} ms',
+            color: color, bold: ms != null),
+      ],
     );
   }
 }

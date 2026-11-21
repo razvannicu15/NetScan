@@ -227,15 +227,8 @@ class _PortScanPageState extends State<PortScanPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (_open.isNotEmpty) SectionHeader(tr('Porturi deschise', 'Open ports')),
-                for (final o in _open)
-                  PortTile(
-                    port: o.port,
-                    banner: o.banner,
-                    onOpen: (kHttpPorts.contains(o.port) ||
-                            kHttpsPorts.contains(o.port))
-                        ? () => _openWeb(o.port)
-                        : null,
-                  ),
+                if (_open.isNotEmpty)
+                  PortsTable(ports: _open, onOpen: _openWeb),
                 if (_finished && _open.isEmpty)
                   Padding(
                     padding: const EdgeInsets.all(24),

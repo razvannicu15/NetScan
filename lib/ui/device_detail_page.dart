@@ -206,45 +206,47 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SectionHeader(tr('Identificare', 'Identification')),
-                InfoRow(Icons.lan_outlined, tr('Adresă IP', 'IP address'), d.ip),
-                InfoRow(
-                    Icons.fingerprint,
-                    tr('Adresă MAC', 'MAC address'),
-                    d.mac ??
-                        (d.isSelf
+                TableCard(children: [
+                    InfoRow(Icons.lan_outlined, tr('Adresă IP', 'IP address'), d.ip),
+                    InfoRow(
+                        Icons.fingerprint,
+                        tr('Adresă MAC', 'MAC address'),
+                        d.mac ??
+                            (d.isSelf
+                                ? null
+                                : tr('Indisponibilă (Android 10+ blochează tabela ARP)', 'Unavailable (Android 10+ blocks the ARP table)'))),
+                    InfoRow(Icons.factory_outlined, tr('Producător', 'Vendor'), d.vendor),
+                    InfoRow(Icons.dns_outlined, 'Hostname (DNS)', d.hostname),
+                    InfoRow(Icons.badge_outlined, tr('Nume NetBIOS', 'NetBIOS name'), d.netbiosName),
+                    InfoRow(Icons.groups_outlined, tr('Grup de lucru', 'Workgroup'), d.workgroup),
+                    InfoRow(Icons.cell_tower, tr('Nume mDNS / Bonjour', 'mDNS / Bonjour name'), d.mdnsName),
+                    InfoRow(Icons.cast_outlined, tr('Nume UPnP', 'UPnP name'), d.upnpName),
+                    InfoRow(
+                        Icons.precision_manufacturing_outlined,
+                        tr('Model UPnP', 'UPnP model'),
+                        [d.upnpManufacturer, d.upnpModel]
+                            .whereType<String>()
+                            .join(' ')
+                            .trim()),
+                    InfoRow(Icons.memory, 'Server', d.serverHeader),
+                    InfoRow(Icons.computer, tr('Sistem (după TTL)', 'OS (from TTL)'),
+                        d.osGuess == null ? null : '${d.osGuess} · TTL ${d.ttl}',
+                        copy: false),
+                    InfoRow(
+                        Icons.speed,
+                        tr('Latență', 'Latency'),
+                        d.latencyMs == null
                             ? null
-                            : tr('Indisponibilă (Android 10+ blochează tabela ARP)', 'Unavailable (Android 10+ blocks the ARP table)'))),
-                InfoRow(Icons.factory_outlined, tr('Producător', 'Vendor'), d.vendor),
-                InfoRow(Icons.dns_outlined, 'Hostname (DNS)', d.hostname),
-                InfoRow(Icons.badge_outlined, tr('Nume NetBIOS', 'NetBIOS name'), d.netbiosName),
-                InfoRow(Icons.groups_outlined, tr('Grup de lucru', 'Workgroup'), d.workgroup),
-                InfoRow(Icons.cell_tower, tr('Nume mDNS / Bonjour', 'mDNS / Bonjour name'), d.mdnsName),
-                InfoRow(Icons.cast_outlined, tr('Nume UPnP', 'UPnP name'), d.upnpName),
-                InfoRow(
-                    Icons.precision_manufacturing_outlined,
-                    tr('Model UPnP', 'UPnP model'),
-                    [d.upnpManufacturer, d.upnpModel]
-                        .whereType<String>()
-                        .join(' ')
-                        .trim()),
-                InfoRow(Icons.memory, 'Server', d.serverHeader),
-                InfoRow(Icons.computer, tr('Sistem (după TTL)', 'OS (from TTL)'),
-                    d.osGuess == null ? null : '${d.osGuess} · TTL ${d.ttl}',
-                    copy: false),
-                InfoRow(
-                    Icons.speed,
-                    tr('Latență', 'Latency'),
-                    d.latencyMs == null
-                        ? null
-                        : '${d.latencyMs!.toStringAsFixed(1)} ms',
-                    copy: false),
-                InfoRow(Icons.history, tr('Văzut prima dată', 'First seen'),
-                    timeAgo(d.firstSeen),
-                    copy: false),
-                if (!d.online)
-                  InfoRow(Icons.schedule, tr('Văzut ultima dată', 'Last seen'),
-                      timeAgo(d.lastSeen),
-                      copy: false),
+                            : '${d.latencyMs!.toStringAsFixed(1)} ms',
+                        copy: false),
+                    InfoRow(Icons.history, tr('Văzut prima dată', 'First seen'),
+                        timeAgo(d.firstSeen),
+                        copy: false),
+                    if (!d.online)
+                      InfoRow(Icons.schedule, tr('Văzut ultima dată', 'Last seen'),
+                          timeAgo(d.lastSeen),
+                          copy: false),
+                ]),
                 SectionHeader(tr('Porturi deschise · ${ports.length}', 'Open ports · ${ports.length}')),
                 if (ports.isEmpty)
                   Padding(
@@ -255,16 +257,14 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                       style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
                     ),
                   ),
-                for (final p in ports)
-                  PortTile(
-                    port: p,
-                    banner: d.openPorts
-                        .where((o) => o.port == p)
-                        .map((o) => o.banner)
-                        .firstOrNull,
-                    onOpen: (kHttpPorts.contains(p) || kHttpsPorts.contains(p))
-                        ? () => _openWeb(p)
-                        : null,
+                if (ports.isNotEmpty)
+                  PortsTable(
+                    ports: [
+                      for (final p in ports)
+                        d.openPorts.where((o) => o.port == p).firstOrNull ??
+                            OpenPort(p),
+                    ],
+                    onOpen: _openWeb,
                   ),
               ],
             ),
@@ -275,41 +275,46 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
   }
 }
 
-class PortTile extends StatelessWidget {
-  const PortTile({super.key, required this.port, this.banner, this.onOpen});
-  final int port;
-  final String? banner;
-  final VoidCallback? onOpen;
+/// Open ports as a subtle table: port · service · banner · open-in-browser.
+class PortsTable extends StatelessWidget {
+  const PortsTable({super.key, required this.ports, this.onOpen});
+  final List<OpenPort> ports;
+  final void Function(int port)? onOpen;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return ListTile(
-      leading: Container(
-        width: 56,
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        decoration: BoxDecoration(
-          color: cs.secondaryContainer,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        alignment: Alignment.center,
-        child: Text('$port',
-            style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: cs.onSecondaryContainer,
-                fontFeatures: const [FontFeature.tabularFigures()])),
-      ),
-      title: Text(serviceName(port)),
-      subtitle: banner == null || banner!.isEmpty
-          ? null
-          : Text(banner!, maxLines: 2, overflow: TextOverflow.ellipsis),
-      trailing: onOpen == null
-          ? null
-          : IconButton(
-              tooltip: tr('Deschide în browser', 'Open in browser'),
-              icon: const Icon(Icons.open_in_new),
-              onPressed: onOpen,
-            ),
+    final cols = [
+      const TableCol('Port', width: 64),
+      TableCol(tr('Serviciu', 'Service'), flex: 2),
+      const TableCol('Info', flex: 3),
+      const TableCol('', width: 32, align: TextAlign.right),
+    ];
+    return TableCard(
+      header: cols,
+      children: [
+        for (final o in ports)
+          TableDataRow(
+            cols: cols,
+            onLongPress: () => copyText(context, '${o.port}'),
+            cells: [
+              CellText('${o.port}', bold: true, color: cs.primary),
+              CellText(o.service),
+              CellText(o.banner ?? '—', muted: true),
+              (onOpen != null &&
+                      (kHttpPorts.contains(o.port) || kHttpsPorts.contains(o.port)))
+                  ? InkWell(
+                      onTap: () => onOpen!(o.port),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(Icons.open_in_new, size: 18, color: cs.primary),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ],
+          ),
+      ],
     );
   }
 }

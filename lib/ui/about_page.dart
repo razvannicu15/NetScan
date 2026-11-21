@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../core/i18n.dart';
 import 'widgets.dart';
 
-const kAppVersion = '1.1.0';
+const kAppVersion = '1.1.1';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
@@ -68,16 +67,6 @@ class AboutPage extends StatelessWidget {
                 tr('Fără tracking, fără cont', 'No tracking, no account')),
             point(Icons.lock_outline,
                 tr('Datele rămân pe dispozitivul tău', 'Your data stays on your device')),
-            point(Icons.code, tr('Cod sursă deschis', 'Open source')),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: () => launchUrl(
-                Uri.parse('https://github.com/razvannicu15/NetScan'),
-                mode: LaunchMode.externalApplication,
-              ),
-              icon: const Icon(Icons.open_in_new),
-              label: Text(tr('Cod sursă pe GitHub', 'Source code on GitHub')),
-            ),
             const SizedBox(height: 24),
             Text(
               tr('Folosește NetScan doar în rețele pe care le administrezi sau ai permisiunea să le scanezi.',

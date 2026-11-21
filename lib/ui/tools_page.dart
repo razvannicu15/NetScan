@@ -111,6 +111,12 @@ class PingPage extends StatefulWidget {
 }
 
 class _PingPageState extends State<PingPage> {
+  List<TableCol> get _pingCols => [
+        const TableCol('#', width: 48),
+        TableCol(tr('Stare', 'Status'), flex: 2),
+        TableCol(tr('Timp', 'Time'), flex: 2, align: TextAlign.right),
+      ];
+
   late final _host = TextEditingController(
       text: widget.initialHost ?? scanner.network?.gateway ?? '8.8.8.8');
   final List<double?> _results = [];
@@ -241,19 +247,26 @@ class _PingPageState extends State<PingPage> {
               ),
             const SizedBox(height: 8),
             if (_results.isNotEmpty) _Sparkline(values: _results.reversed.take(60).toList()),
-            for (var i = 0; i < _results.length && i < 200; i++)
-              ListTile(
-                dense: true,
-                leading: Icon(
-                  _results[i] == null ? Icons.close_rounded : Icons.check_rounded,
-                  color: _results[i] == null ? cs.error : cs.primary,
-                ),
-                title: Text(_results[i] == null
-                    ? 'Timeout'
-                    : '${f(_results[i]!)} ms'),
-                trailing: Text('#${_results.length - i}',
-                    style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
+            if (_results.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              TableCard(
+                margin: EdgeInsets.zero,
+                header: _pingCols,
+                children: [
+                  for (var i = 0; i < _results.length && i < 200; i++)
+                    TableDataRow(
+                      cols: _pingCols,
+                      cells: [
+                        CellText('${_results.length - i}', muted: true),
+                        CellText(_results[i] == null ? 'Timeout' : 'OK',
+                            color: _results[i] == null ? cs.error : cs.primary),
+                        CellText(_results[i] == null ? '—' : '${f(_results[i]!)} ms',
+                            bold: true),
+                      ],
+                    ),
+                ],
               ),
+            ],
           ],
         ),
       ),
@@ -594,14 +607,16 @@ class _NetInfoPageState extends State<NetInfoPage> {
         child: ListView(
           children: [
             SectionHeader(tr('Rețea locală', 'Local network')),
-            InfoRow(Icons.settings_ethernet, tr('Interfață', 'Interface'), net?.interfaceName),
-            InfoRow(Icons.lan_outlined, 'IP local', net?.ip),
-            InfoRow(Icons.fingerprint, tr('MAC propriu', 'Own MAC'), net?.selfMac),
-            InfoRow(Icons.account_tree_outlined, tr('Subrețea', 'Subnet'),
-                net == null ? null : tr('${net.id}  (scanat: ${net.cidr})', '${net.id}  (scanned: ${net.cidr})')),
-            InfoRow(Icons.router_outlined, 'Gateway', net?.gateway),
-            InfoRow(Icons.campaign_outlined, 'Broadcast', net?.broadcast),
-            InfoRow(Icons.computer, tr('Nume dispozitiv', 'Device name'), Platform.localHostname),
+            TableCard(children: [
+              InfoRow(Icons.settings_ethernet, tr('Interfață', 'Interface'), net?.interfaceName),
+              InfoRow(Icons.lan_outlined, 'IP local', net?.ip),
+              InfoRow(Icons.fingerprint, tr('MAC propriu', 'Own MAC'), net?.selfMac),
+              InfoRow(Icons.account_tree_outlined, tr('Subrețea', 'Subnet'),
+                  net == null ? null : tr('${net.id}  (scanat: ${net.cidr})', '${net.id}  (scanned: ${net.cidr})')),
+              InfoRow(Icons.router_outlined, 'Gateway', net?.gateway),
+              InfoRow(Icons.campaign_outlined, 'Broadcast', net?.broadcast),
+              InfoRow(Icons.computer, tr('Nume dispozitiv', 'Device name'), Platform.localHostname),
+            ]),
             const SectionHeader('Internet'),
             if (_loading)
               const Padding(
@@ -609,8 +624,11 @@ class _NetInfoPageState extends State<NetInfoPage> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else ...[
-              InfoRow(Icons.public, tr('IP public', 'Public IP'), _publicIp ?? tr('Indisponibil', 'Unavailable')),
-              InfoRow(Icons.business_outlined, tr('Furnizor / locație', 'ISP / location'), _isp),
+              TableCard(children: [
+                InfoRow(Icons.public, tr('IP public', 'Public IP'), _publicIp ?? tr('Indisponibil', 'Unavailable')),
+                InfoRow(Icons.business_outlined, tr('Furnizor / locație', 'ISP / location'), _isp),
+              ]),
+              const SizedBox(height: 24),
             ],
           ],
         ),
