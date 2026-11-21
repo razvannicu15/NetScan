@@ -4,6 +4,7 @@ title NetScan
 color 0B
 
 set "REPO_URL=https://github.com/razvannicu15/NetScan.git"
+set "DL_URL=https://github.com/razvannicu15/NetScan/releases/download/latest"
 
 rem Daca .bat-ul sta in folderul proiectului il folosim pe acela,
 rem altfel lucram in D:\Apps\NetScan (ex. cand e pus pe Desktop).
@@ -23,7 +24,7 @@ echo                    N E T S C A N
 echo   ==============================================
 echo    Proiect: %APP_DIR%
 echo.
-echo    [1] BUILD APK + EXE  - in cloud, nu trebuie Flutter
+echo    [1] DESCARCA ultima versiune APK + EXE - fara Flutter, fara login
 echo    [2] Deschide folderul cu APK si EXE
 echo    [3] Porneste NetScan.exe
 echo    [4] Actualizeaza codul din GitHub
@@ -42,8 +43,32 @@ goto menu
 
 rem ------------------------------------------------------------ 1. cloud
 :cloud
-call :ensure_repo || goto pause_menu
-powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\tool\cloud_build.ps1" -AppDir "%APP_DIR%"
+if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
+echo.
+echo   Descarc NetScan-android.apk ...
+curl -L -f --progress-bar -o "%OUT_DIR%\NetScan-android.apk.part" "%DL_URL%/NetScan-android.apk"
+if errorlevel 1 goto dl_fail
+move /y "%OUT_DIR%\NetScan-android.apk.part" "%OUT_DIR%\NetScan-android.apk" >nul
+echo   Descarc NetScan-windows.zip ...
+curl -L -f --progress-bar -o "%OUT_DIR%\NetScan-windows.zip.part" "%DL_URL%/NetScan-windows.zip"
+if errorlevel 1 goto dl_fail
+move /y "%OUT_DIR%\NetScan-windows.zip.part" "%OUT_DIR%\NetScan-windows.zip" >nul
+if exist "%OUT_DIR%\NetScan-windows" rmdir /s /q "%OUT_DIR%\NetScan-windows"
+mkdir "%OUT_DIR%\NetScan-windows"
+tar -xf "%OUT_DIR%\NetScan-windows.zip" -C "%OUT_DIR%\NetScan-windows"
+if errorlevel 1 goto dl_fail
+echo.
+echo   ======  GATA  ======
+echo   APK: %OUT_DIR%\NetScan-android.apk
+echo   EXE: %OUT_DIR%\NetScan-windows\NetScan.exe
+start "" explorer "%OUT_DIR%"
+goto pause_menu
+:dl_fail
+del /q "%OUT_DIR%\*.part" >nul 2>&1
+echo.
+echo   Descarcarea a esuat. Verifica:
+echo    - repo-ul este public pe GitHub
+echo    - build-ul s-a terminat: https://github.com/razvannicu15/NetScan/actions
 goto pause_menu
 
 rem ------------------------------------------------------------- 2. open

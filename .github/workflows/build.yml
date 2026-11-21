@@ -96,22 +96,31 @@ jobs:
           path: dist/NetScan-windows.zip
 
   release:
-    name: GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Publish release
+    if: github.event_name != 'pull_request'
     needs: [android, windows]
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          name: NetScan ${{ github.ref_name }}
-          files: |
-            dist/NetScan-android.apk
-            dist/NetScan-windows.zip
-          body: |
-            **Android:** descarcă `NetScan-android.apk` și instalează-l (permite instalarea din surse necunoscute).
-            **Windows:** descarcă `NetScan-windows.zip`, dezarhivează și rulează `NetScan.exe`.
+      # Rolling "latest" release: always the newest build from main.
+      - name: Update "latest" release
+        if: github.ref == 'refs/heads/main'
+        run: |
+          gh release delete latest -R "$REPO" --yes --cleanup-tag || true
+          gh release create latest dist/NetScan-android.apk dist/NetScan-windows.zip \
+            -R "$REPO" --target "$GITHUB_SHA" --latest \
+            --title "NetScan - ultima versiune" \
+            --notes "Build automat din main (${GITHUB_SHA::7}). Android: NetScan-android.apk. Windows: dezarhiveaza NetScan-windows.zip si ruleaza NetScan.exe."
+
+      - name: Versioned release (tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/NetScan-android.apk dist/NetScan-windows.zip \
+            -R "$REPO" --title "NetScan $GITHUB_REF_NAME" --generate-notes
