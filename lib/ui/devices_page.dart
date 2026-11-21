@@ -1,3 +1,4 @@
+import '../core/i18n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -74,28 +75,28 @@ class _DevicesPageState extends State<DevicesPage> {
                   title: const Text('NetScan'),
                   actions: [
                     PopupMenuButton<_Sort>(
-                      tooltip: 'Sortează',
+                      tooltip: tr('Sortează', 'Sort'),
                       icon: const Icon(Icons.sort_rounded),
                       initialValue: _sort,
                       onSelected: (s) => setState(() => _sort = s),
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: _Sort.ip, child: Text('După IP')),
+                      itemBuilder: (_) => [
+                        PopupMenuItem(value: _Sort.ip, child: Text(tr('După IP', 'By IP'))),
                         PopupMenuItem(
-                            value: _Sort.name, child: Text('După nume')),
+                            value: _Sort.name, child: Text(tr('După nume', 'By name'))),
                         PopupMenuItem(
-                            value: _Sort.vendor, child: Text('După producător')),
-                        PopupMenuItem(value: _Sort.type, child: Text('După tip')),
+                            value: _Sort.vendor, child: Text(tr('După producător', 'By vendor'))),
+                        PopupMenuItem(value: _Sort.type, child: Text(tr('După tip', 'By type'))),
                       ],
                     ),
                     IconButton(
-                      tooltip: 'Copiază lista (CSV)',
+                      tooltip: tr('Copiază lista (CSV)', 'Copy list (CSV)'),
                       icon: const Icon(Icons.ios_share_rounded),
                       onPressed: scanner.devices.isEmpty
                           ? null
                           : () {
                               Clipboard.setData(
                                   ClipboardData(text: scanner.exportCsv()));
-                              toast(context, 'Lista a fost copiată ca CSV');
+                              toast(context, tr('Lista a fost copiată ca CSV', 'List copied as CSV'));
                             },
                     ),
                     const SizedBox(width: 4),
@@ -110,7 +111,7 @@ class _DevicesPageState extends State<DevicesPage> {
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                         child: SearchBar(
-                          hintText: 'Caută IP, MAC, nume, producător…',
+                          hintText: tr('Caută IP, MAC, nume, producător…', 'Search IP, MAC, name, vendor…'),
                           leading: const Icon(Icons.search),
                           elevation: const WidgetStatePropertyAll(0),
                           onChanged: (v) => setState(() => _query = v),
@@ -143,7 +144,7 @@ class _DevicesPageState extends State<DevicesPage> {
                         trailing: TextButton(
                           onPressed: () =>
                               setState(() => _showOffline = !_showOffline),
-                          child: Text(_showOffline ? 'Ascunde' : 'Arată'),
+                          child: Text(_showOffline ? tr('Ascunde', 'Hide') : tr('Arată', 'Show')),
                         ),
                       ),
                     ),
@@ -172,7 +173,7 @@ class _ScanFab extends StatelessWidget {
     return FloatingActionButton.extended(
       onPressed: scanning ? scanner.cancel : scanner.scan,
       icon: Icon(scanning ? Icons.stop_rounded : Icons.radar),
-      label: Text(scanning ? 'Oprește' : 'Scanează'),
+      label: Text(scanning ? tr('Oprește', 'Stop') : tr('Scanează', 'Scan')),
     );
   }
 }
@@ -207,9 +208,9 @@ class _NetworkCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       scanner.detectingNetwork && net == null
-                          ? 'Detectez rețeaua…'
+                          ? tr('Detectez rețeaua…', 'Detecting network…')
                           : net == null
-                              ? 'Nicio rețea locală'
+                              ? tr('Nicio rețea locală', 'No local network')
                               : net.interfaceName,
                       style: tt.titleMedium?.copyWith(
                           color: cs.onPrimaryContainer,
@@ -218,7 +219,7 @@ class _NetworkCard extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Redetectează rețeaua',
+                    tooltip: tr('Redetectează rețeaua', 'Re-detect network'),
                     onPressed: scanning ? null : scanner.refreshNetwork,
                     icon: Icon(Icons.refresh_rounded,
                         color: cs.onPrimaryContainer),
@@ -230,10 +231,10 @@ class _NetworkCard extends StatelessWidget {
                 spacing: 24,
                 runSpacing: 12,
                 children: [
-                  _Stat('Dispozitive', '${scanner.devices.length}'),
-                  _Stat('IP-ul tău', net?.ip ?? '—'),
+                  _Stat(tr('Dispozitive', 'Devices'), '${scanner.devices.length}'),
+                  _Stat(tr('IP-ul tău', 'Your IP'), net?.ip ?? '—'),
                   _Stat('Gateway', net?.gateway ?? '—'),
-                  _Stat('Interval', scanner.targetDescription),
+                  _Stat(tr('Interval', 'Range'), scanner.targetDescription),
                 ],
               ),
               const SizedBox(height: 16),
@@ -241,9 +242,7 @@ class _NetworkCard extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: LinearProgressIndicator(
-                    value: scanner.phase == ScanPhase.discovering
-                        ? scanner.progress
-                        : null,
+                    value: scanner.progress,
                     minHeight: 6,
                     backgroundColor: cs.onPrimaryContainer.withValues(alpha: 0.12),
                   ),
@@ -253,10 +252,10 @@ class _NetworkCard extends StatelessWidget {
               Text(
                 scanning
                     ? '${scanner.status}'
-                        '${scanner.phase == ScanPhase.discovering ? '  ${scanner.progressDone}/${scanner.progressTotal}' : ''}'
+                        '${scanner.progressTotal > 0 ? '  ${scanner.progressDone}/${scanner.progressTotal}' : ''}'
                     : scanner.lastScan == null
                         ? (scanner.status.isEmpty
-                            ? 'Apasă „Scanează” pentru a descoperi dispozitivele.'
+                            ? tr('Apasă „Scanează” pentru a descoperi dispozitivele.', 'Tap “Scan” to discover devices.')
                             : scanner.status)
                         : '${scanner.status} · ${timeAgo(scanner.lastScan!)}',
                 style: tt.bodyMedium?.copyWith(
@@ -343,7 +342,7 @@ class _DeviceTile extends StatelessWidget {
                           ),
                           if (d.isSelf) ...[
                             const SizedBox(width: 6),
-                            const TagChip('TU'),
+                            TagChip(tr('TU', 'YOU')),
                           ],
                           if (d.isGateway) ...[
                             const SizedBox(width: 6),
@@ -353,7 +352,7 @@ class _DeviceTile extends StatelessWidget {
                           ],
                           if (d.isNew) ...[
                             const SizedBox(width: 6),
-                            TagChip('NOU',
+                            TagChip(tr('NOU', 'NEW'),
                                 color: cs.errorContainer,
                                 onColor: cs.onErrorContainer),
                           ],
@@ -361,7 +360,7 @@ class _DeviceTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        d.online ? sub : '$sub · văzut ${timeAgo(d.lastSeen)}',
+                        d.online ? sub : tr('$sub · văzut ${timeAgo(d.lastSeen)}', '$sub · seen ${timeAgo(d.lastSeen)}'),
                         style: tt.bodyMedium
                             ?.copyWith(color: cs.onSurfaceVariant),
                         overflow: TextOverflow.ellipsis,
@@ -414,12 +413,12 @@ class _EmptyState extends StatelessWidget {
             child: Icon(Icons.radar, size: 56, color: cs.onSecondaryContainer),
           ),
           const SizedBox(height: 20),
-          Text('Descoperă ce e în rețeaua ta',
+          Text(tr('Descoperă ce e în rețeaua ta', 'Discover what\'s on your network'),
               style: tt.titleLarge, textAlign: TextAlign.center),
           const SizedBox(height: 8),
           Text(
-            'NetScan găsește dispozitivele conectate, adresele IP și MAC, '
-            'producătorul și porturile deschise.',
+            tr('NetScan găsește dispozitivele conectate, adresele IP și MAC, producătorul și porturile deschise.',
+                'NetScan finds connected devices, their IP and MAC addresses, vendor and open ports.'),
             style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
             textAlign: TextAlign.center,
           ),

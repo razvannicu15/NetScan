@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
+import 'core/i18n.dart';
 import 'ui/home_shell.dart';
 
 Future<void> main() async {
@@ -45,6 +46,7 @@ class NetScanApp extends StatelessWidget {
     return ListenableBuilder(
       listenable: appSettings,
       builder: (context, _) => MaterialApp(
+        key: ValueKey(currentLang),
         title: 'NetScan',
         debugShowCheckedModeBanner: false,
         themeMode: appSettings.themeMode,

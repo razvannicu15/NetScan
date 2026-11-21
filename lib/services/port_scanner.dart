@@ -28,29 +28,76 @@ class PortScanner {
     }
   }
 
+  /// Scans [ports]. Ports that time out are re-checked slowly with a longer
+  /// timeout, because small devices (routers, cameras, IoT) silently drop
+  /// connections when they receive too many at once.
   static Future<void> scan(
     String ip,
     List<int> ports, {
     required void Function(int port) onOpen,
     required void Function(int done, int total) onProgress,
     CancelToken? cancel,
-    int concurrency = 200,
+    int concurrency = 64,
     Duration timeout = const Duration(milliseconds: 700),
   }) async {
     var done = 0;
+    var total = ports.length;
     var lastReport = DateTime.now();
+    final found = <int>{};
+    final filtered = <int>[];
+    var closed = 0;
+
+    void report() {
+      final now = DateTime.now();
+      if (now.difference(lastReport).inMilliseconds > 80 || done == total) {
+        lastReport = now;
+        onProgress(done, total);
+      }
+    }
+
     await runPool<int>(ports, concurrency, (port) async {
       final r = await probe(ip, port, timeout);
-      if (r == ProbeResult.open) onOpen(port);
-      done++;
-      final now = DateTime.now();
-      if (now.difference(lastReport).inMilliseconds > 80 ||
-          done == ports.length) {
-        lastReport = now;
-        onProgress(done, ports.length);
+      if (r == ProbeResult.open) {
+        found.add(port);
+        onOpen(port);
+      } else if (r == ProbeResult.closed) {
+        closed++;
+      } else {
+        filtered.add(port);
       }
+      done++;
+      report();
     }, cancel: cancel);
-    onProgress(done, ports.length);
+
+    if (cancel?.isCancelled ?? false) return;
+
+    // Second pass: slow and patient re-check of timed-out ports.
+    // Only hosts that actively answer (RST) for closed ports are worth a
+    // re-check: there a timeout means a dropped connection, not a firewall.
+    final important = {...kServiceNames.keys, ...kHttpPorts, ...kHttpsPorts};
+    final retry = closed == 0
+        ? <int>[]
+        : (filtered.length <= 300 || closed > filtered.length)
+            ? filtered
+            : filtered.where(important.contains).toList();
+    if (retry.isEmpty) {
+      onProgress(done, total);
+      return;
+    }
+    retry.sort();
+    total += retry.length;
+    final slow = Duration(
+        milliseconds: (timeout.inMilliseconds * 3).clamp(1500, 4000).toInt());
+    await runPool<int>(retry, 8, (port) async {
+      var r = await probe(ip, port, slow);
+      if (r == ProbeResult.filtered && important.contains(port)) {
+        r = await probe(ip, port, slow);
+      }
+      if (r == ProbeResult.open && found.add(port)) onOpen(port);
+      done++;
+      report();
+    }, cancel: cancel);
+    onProgress(done, total);
   }
 
   /// Reads a service banner (SSH/FTP/SMTP greet, HTTP Server header).

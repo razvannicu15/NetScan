@@ -1,3 +1,4 @@
+import '../core/i18n.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -7,6 +8,7 @@ import '../models/device.dart';
 import '../services/protocols.dart';
 import 'port_scan_page.dart';
 import 'tools_page.dart';
+import 'traceroute_page.dart';
 import 'widgets.dart';
 
 class DeviceDetailPage extends StatefulWidget {
@@ -25,23 +27,23 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Redenumește dispozitivul'),
+        title: Text(tr('Redenumește dispozitivul', 'Rename device')),
         content: TextField(
           controller: ctrl,
           autofocus: true,
           decoration: InputDecoration(
             hintText: d.autoName,
-            labelText: 'Nume personalizat',
+            labelText: tr('Nume personalizat', 'Custom name'),
           ),
           onSubmitted: (v) => Navigator.pop(ctx, v),
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, ''),
-              child: const Text('Resetează')),
+              child: Text(tr('Resetează', 'Reset'))),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, ctrl.text),
-              child: const Text('Salvează')),
+              child: Text(tr('Salvează', 'Save'))),
         ],
       ),
     );
@@ -53,7 +55,7 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
   Future<void> _wake() async {
     final ok = await WakeOnLan.send(d.mac!, broadcast: scanner.network?.broadcast);
     if (mounted) {
-      toast(context, ok ? 'Pachet Wake-on-LAN trimis' : 'Nu s-a putut trimite');
+      toast(context, ok ? tr('Pachet Wake-on-LAN trimis', 'Wake-on-LAN packet sent') : tr('Nu s-a putut trimite', 'Could not send'));
     }
   }
 
@@ -62,7 +64,7 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     final uri = Uri.parse(
         '${https ? 'https' : 'http'}://${d.ip}${(port == 80 || port == 443) ? '' : ':$port'}/');
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) toast(context, 'Nu pot deschide $uri');
+    if (!ok && mounted) toast(context, tr('Nu pot deschide $uri', 'Cannot open $uri'));
   }
 
   Future<void> _forget() async {
@@ -83,13 +85,13 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
         title: Text(d.displayName, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
-            tooltip: 'Redenumește',
+            tooltip: tr('Redenumește', 'Rename'),
             icon: const Icon(Icons.edit_outlined),
             onPressed: _rename,
           ),
           if (!d.online)
             IconButton(
-              tooltip: 'Uită dispozitivul',
+              tooltip: tr('Uită dispozitivul', 'Forget device'),
               icon: const Icon(Icons.delete_outline),
               onPressed: _forget,
             ),
@@ -126,13 +128,13 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                               onColor: d.online
                                   ? cs.onSecondaryContainer
                                   : cs.onSurfaceVariant),
-                          if (d.isSelf) const TagChip('ACEST DISPOZITIV'),
+                          if (d.isSelf) TagChip(tr('ACEST DISPOZITIV', 'THIS DEVICE')),
                           if (d.isGateway)
                             TagChip('GATEWAY',
                                 color: cs.tertiaryContainer,
                                 onColor: cs.onTertiaryContainer),
                           if (d.isNew)
-                            TagChip('NOU',
+                            TagChip(tr('NOU', 'NEW'),
                                 color: cs.errorContainer,
                                 onColor: cs.onErrorContainer),
                         ]),
@@ -159,7 +161,7 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                       ),
                     ).then((_) => setState(() {})),
                     icon: const Icon(Icons.travel_explore),
-                    label: const Text('Scanează porturi'),
+                    label: Text(tr('Scanează porturi', 'Scan ports')),
                   ),
                   FilledButton.tonalIcon(
                     onPressed: () => Navigator.push(
@@ -171,6 +173,17 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                     icon: const Icon(Icons.network_ping),
                     label: const Text('Ping'),
                   ),
+                  if (!d.isSelf)
+                    FilledButton.tonalIcon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => TraceroutePage(initialHost: d.ip),
+                        ),
+                      ),
+                      icon: const Icon(Icons.route_outlined),
+                      label: const Text('Traceroute'),
+                    ),
                   if (d.mac != null && !d.isSelf)
                     FilledButton.tonalIcon(
                       onPressed: _wake,
@@ -192,53 +205,53 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SectionHeader('Identificare'),
-                InfoRow(Icons.lan_outlined, 'Adresă IP', d.ip),
+                SectionHeader(tr('Identificare', 'Identification')),
+                InfoRow(Icons.lan_outlined, tr('Adresă IP', 'IP address'), d.ip),
                 InfoRow(
                     Icons.fingerprint,
-                    'Adresă MAC',
+                    tr('Adresă MAC', 'MAC address'),
                     d.mac ??
                         (d.isSelf
                             ? null
-                            : 'Indisponibilă (Android 10+ blochează tabela ARP)')),
-                InfoRow(Icons.factory_outlined, 'Producător', d.vendor),
+                            : tr('Indisponibilă (Android 10+ blochează tabela ARP)', 'Unavailable (Android 10+ blocks the ARP table)'))),
+                InfoRow(Icons.factory_outlined, tr('Producător', 'Vendor'), d.vendor),
                 InfoRow(Icons.dns_outlined, 'Hostname (DNS)', d.hostname),
-                InfoRow(Icons.badge_outlined, 'Nume NetBIOS', d.netbiosName),
-                InfoRow(Icons.groups_outlined, 'Grup de lucru', d.workgroup),
-                InfoRow(Icons.cell_tower, 'Nume mDNS / Bonjour', d.mdnsName),
-                InfoRow(Icons.cast_outlined, 'Nume UPnP', d.upnpName),
+                InfoRow(Icons.badge_outlined, tr('Nume NetBIOS', 'NetBIOS name'), d.netbiosName),
+                InfoRow(Icons.groups_outlined, tr('Grup de lucru', 'Workgroup'), d.workgroup),
+                InfoRow(Icons.cell_tower, tr('Nume mDNS / Bonjour', 'mDNS / Bonjour name'), d.mdnsName),
+                InfoRow(Icons.cast_outlined, tr('Nume UPnP', 'UPnP name'), d.upnpName),
                 InfoRow(
                     Icons.precision_manufacturing_outlined,
-                    'Model UPnP',
+                    tr('Model UPnP', 'UPnP model'),
                     [d.upnpManufacturer, d.upnpModel]
                         .whereType<String>()
                         .join(' ')
                         .trim()),
                 InfoRow(Icons.memory, 'Server', d.serverHeader),
-                InfoRow(Icons.computer, 'Sistem (după TTL)',
+                InfoRow(Icons.computer, tr('Sistem (după TTL)', 'OS (from TTL)'),
                     d.osGuess == null ? null : '${d.osGuess} · TTL ${d.ttl}',
                     copy: false),
                 InfoRow(
                     Icons.speed,
-                    'Latență',
+                    tr('Latență', 'Latency'),
                     d.latencyMs == null
                         ? null
                         : '${d.latencyMs!.toStringAsFixed(1)} ms',
                     copy: false),
-                InfoRow(Icons.history, 'Văzut prima dată',
+                InfoRow(Icons.history, tr('Văzut prima dată', 'First seen'),
                     timeAgo(d.firstSeen),
                     copy: false),
                 if (!d.online)
-                  InfoRow(Icons.schedule, 'Văzut ultima dată',
+                  InfoRow(Icons.schedule, tr('Văzut ultima dată', 'Last seen'),
                       timeAgo(d.lastSeen),
                       copy: false),
-                SectionHeader('Porturi deschise · ${ports.length}'),
+                SectionHeader(tr('Porturi deschise · ${ports.length}', 'Open ports · ${ports.length}')),
                 if (ports.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
-                      'Niciun port cunoscut încă. Rulează o scanare de porturi '
-                      'pentru detalii complete.',
+                      tr('Niciun port cunoscut încă. Rulează o scanare de porturi pentru detalii complete.',
+                          'No known ports yet. Run a port scan for full details.'),
                       style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
                     ),
                   ),
@@ -293,7 +306,7 @@ class PortTile extends StatelessWidget {
       trailing: onOpen == null
           ? null
           : IconButton(
-              tooltip: 'Deschide în browser',
+              tooltip: tr('Deschide în browser', 'Open in browser'),
               icon: const Icon(Icons.open_in_new),
               onPressed: onOpen,
             ),

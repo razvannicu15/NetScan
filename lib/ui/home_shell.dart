@@ -1,3 +1,4 @@
+import '../core/i18n.dart';
 import 'package:flutter/material.dart';
 
 import 'devices_page.dart';
@@ -12,14 +13,15 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _index = 0;
+  static int _saved = 0; // survives language switch rebuilds
+  int _index = _saved;
 
   static const _pages = [DevicesPage(), ToolsPage(), SettingsPage()];
 
-  static const _dest = [
-    (Icons.lan_outlined, Icons.lan, 'Dispozitive'),
-    (Icons.handyman_outlined, Icons.handyman, 'Instrumente'),
-    (Icons.settings_outlined, Icons.settings, 'Setări'),
+  static List<(IconData, IconData, String)> get _dest => [
+    (Icons.lan_outlined, Icons.lan, tr('Dispozitive', 'Devices')),
+    (Icons.handyman_outlined, Icons.handyman, tr('Instrumente', 'Tools')),
+    (Icons.settings_outlined, Icons.settings, tr('Setări', 'Settings')),
   ];
 
   @override
@@ -33,7 +35,7 @@ class _HomeShellState extends State<HomeShell> {
           children: [
             NavigationRail(
               selectedIndex: _index,
-              onDestinationSelected: (i) => setState(() => _index = i),
+              onDestinationSelected: (i) => setState(() => _index = _saved = i),
               labelType: NavigationRailLabelType.all,
               groupAlignment: -0.9,
               leading: Padding(
@@ -68,7 +70,7 @@ class _HomeShellState extends State<HomeShell> {
       body: body,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: (i) => setState(() => _index = _saved = i),
         destinations: [
           for (final d in _dest)
             NavigationDestination(

@@ -1,3 +1,5 @@
+import 'i18n.dart';
+
 /// Well-known TCP ports with human friendly service names.
 const Map<int, String> kServiceNames = {
   7: 'Echo',
@@ -30,11 +32,11 @@ const Map<int, String> kServiceNames = {
   445: 'SMB',
   465: 'SMTPS',
   500: 'IKE/VPN',
-  515: 'LPD (imprimantă)',
+  515: 'LPD (printer)',
   548: 'AFP',
-  554: 'RTSP (cameră)',
+  554: 'RTSP (camera)',
   587: 'SMTP Submission',
-  631: 'IPP (imprimantă)',
+  631: 'IPP (printer)',
   636: 'LDAPS',
   873: 'rsync',
   902: 'VMware',
@@ -92,7 +94,7 @@ const Map<int, String> kServiceNames = {
   8899: 'HTTP-alt',
   9000: 'Portainer / HTTP',
   9090: 'HTTP-alt',
-  9100: 'Imprimantă (RAW)',
+  9100: 'Printer (RAW)',
   9200: 'Elasticsearch',
   9443: 'HTTPS-alt',
   10000: 'Webmin',
@@ -107,7 +109,7 @@ const Map<int, String> kServiceNames = {
   62078: 'iOS Lockdown',
 };
 
-String serviceName(int port) => kServiceNames[port] ?? 'necunoscut';
+String serviceName(int port) => kServiceNames[port] ?? tr('necunoscut', 'unknown');
 
 /// Ports probed during host discovery (fast liveness + type hints).
 const List<int> kDiscoveryPorts = [

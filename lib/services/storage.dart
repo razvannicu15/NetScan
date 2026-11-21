@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../core/i18n.dart';
 import '../models/device.dart';
 
 /// Tiny JSON-file persistence for settings and known devices.
@@ -42,24 +43,29 @@ class Storage {
 
 class AppSettings extends ChangeNotifier {
   ThemeMode themeMode = ThemeMode.system;
+  String language = 'system';
   bool usePing = true;
+  bool scanPorts = true;
   int probeTimeoutMs = 700;
   String customStart = '';
   String customEnd = '';
   bool useCustomRange = false;
-  int portConcurrency = 200;
+  int portConcurrency = 64;
 
   Future<void> load() async {
     final j = await Storage.instance.readJson('settings.json');
     themeMode = ThemeMode.values.firstWhere(
         (m) => m.name == j['themeMode'],
         orElse: () => ThemeMode.system);
+    language = j['language'] as String? ?? 'system';
+    setLanguage(language);
     usePing = j['usePing'] as bool? ?? true;
+    scanPorts = j['scanPorts'] as bool? ?? true;
     probeTimeoutMs = (j['probeTimeoutMs'] as int? ?? 700).clamp(200, 3000);
     customStart = j['customStart'] as String? ?? '';
     customEnd = j['customEnd'] as String? ?? '';
     useCustomRange = j['useCustomRange'] as bool? ?? false;
-    portConcurrency = (j['portConcurrency'] as int? ?? 200).clamp(16, 512);
+    portConcurrency = (j['portConcurrency2'] as int? ?? 64).clamp(8, 256);
     notifyListeners();
   }
 
@@ -67,6 +73,7 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> update(void Function(AppSettings s) change) {
     change(this);
+    setLanguage(language);
     notifyListeners();
     return _pending = _pending.then((_) => _save());
   }
@@ -74,12 +81,14 @@ class AppSettings extends ChangeNotifier {
   Future<void> _save() async {
     await Storage.instance.writeJson('settings.json', {
       'themeMode': themeMode.name,
+      'language': language,
       'usePing': usePing,
+      'scanPorts': scanPorts,
       'probeTimeoutMs': probeTimeoutMs,
       'customStart': customStart,
       'customEnd': customEnd,
       'useCustomRange': useCustomRange,
-      'portConcurrency': portConcurrency,
+      'portConcurrency2': portConcurrency,
     });
   }
 }

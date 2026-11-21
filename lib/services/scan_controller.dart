@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../core/i18n.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/ports.dart';
@@ -84,7 +85,7 @@ class ScanController extends ChangeNotifier {
 
   void cancel() {
     _cancel?.cancel();
-    status = 'Se oprește…';
+    status = tr('Se oprește…', 'Stopping…');
     notifyListeners();
   }
 
@@ -113,7 +114,7 @@ class ScanController extends ChangeNotifier {
     await refreshNetwork();
     final net = network;
     if (net == null) {
-      status = 'Nu ești conectat la nicio rețea locală.';
+      status = tr('Nu ești conectat la nicio rețea locală.', 'You are not connected to a local network.');
       notifyListeners();
       return;
     }
@@ -126,7 +127,7 @@ class ScanController extends ChangeNotifier {
     phase = ScanPhase.discovering;
     progressDone = 0;
     progressTotal = targets.length;
-    status = 'Caut dispozitive în ${targetDescription}…';
+    status = tr('Caut dispozitive în ${targetDescription}…', 'Looking for devices in ${targetDescription}…');
     notifyListeners();
 
     // Self + gateway are always shown.
@@ -143,7 +144,7 @@ class ScanController extends ChangeNotifier {
 
     final targetSet = targets.toSet();
     final usePing = settings.usePing;
-    await runPool<String>(targets, Platform.isWindows ? 32 : 24, (ip) async {
+    await runPool<String>(targets, Platform.isWindows ? 24 : 20, (ip) async {
       if (ip == net.ip) {
         progressDone++;
         return;
@@ -181,7 +182,7 @@ class ScanController extends ChangeNotifier {
 
     // ---- ARP: catches firewalled hosts and supplies MAC addresses.
     phase = ScanPhase.resolving;
-    status = 'Identific dispozitivele…';
+    status = tr('Identific dispozitivele…', 'Identifying devices…');
     progressTotal = 0;
     notifyListeners();
 
@@ -237,6 +238,40 @@ class ScanController extends ChangeNotifier {
       } catch (_) {}
     }, cancel: cancel);
 
+    // ---- Full common-port scan on every device found.
+    if (settings.scanPorts && !cancel.isCancelled) {
+      final list = _devices.values.toList()
+        ..sort((a, b) => compareIp(a.ip, b.ip));
+      progressDone = 0;
+      progressTotal = list.length;
+      status = tr('Scanez porturile…', 'Scanning ports…');
+      notifyListeners();
+      final timeout = Duration(milliseconds: settings.probeTimeoutMs);
+      await runPool<Device>(list, 4, (d) async {
+        final open = <int>{};
+        await PortScanner.scan(
+          d.ip,
+          kTopPorts,
+          concurrency: 16,
+          timeout: timeout,
+          cancel: cancel,
+          onOpen: open.add,
+          onProgress: (_, __) {},
+        );
+        if (!cancel.isCancelled) {
+          final sorted = open.toList()..sort();
+          d.discoveryPorts
+            ..clear()
+            ..addAll(sorted);
+          d.openPorts = [for (final p in sorted) OpenPort(p)];
+        } else {
+          d.discoveryPorts.addAll(open);
+        }
+        progressDone++;
+        _scheduleNotify();
+      }, cancel: cancel);
+    }
+
     _finish(net, known, cancelled: cancel.isCancelled);
   }
 
@@ -265,8 +300,8 @@ class ScanController extends ChangeNotifier {
     lastScan = now;
     final n = _devices.length;
     status = cancelled
-        ? 'Scanare oprită · $n dispozitive'
-        : '$n dispozitive găsite';
+        ? tr('Scanare oprită · $n dispozitive', 'Scan stopped · $n devices')
+        : tr('$n dispozitive găsite', '$n devices found');
     _notifyTimer?.cancel();
     _notifyTimer = null;
     notifyListeners();

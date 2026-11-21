@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import '../core/i18n.dart';
 import 'package:flutter/services.dart';
 
 import '../core/utils.dart';
@@ -68,7 +69,7 @@ class OuiService {
     final v = _map[hex.substring(0, 6)];
     if (v != null) return v;
     final n = normalizeMac(mac);
-    if (n != null && isRandomMac(n)) return 'MAC privat (aleator)';
+    if (n != null && isRandomMac(n)) return tr('MAC privat (aleator)', 'Private MAC (random)');
     return null;
   }
 }

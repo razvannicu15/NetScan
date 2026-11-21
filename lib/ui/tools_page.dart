@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../core/i18n.dart';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
@@ -9,6 +10,8 @@ import '../core/utils.dart';
 import '../services/port_scanner.dart';
 import '../services/protocols.dart';
 import 'port_scan_page.dart';
+import 'speed_test_page.dart';
+import 'traceroute_page.dart';
 import 'widgets.dart';
 
 class ToolsPage extends StatelessWidget {
@@ -17,21 +20,27 @@ class ToolsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tools = <(IconData, String, String, Widget Function())>[
-      (Icons.network_ping, 'Ping', 'Latență și pierderi de pachete',
+      (Icons.speed, 'Speed test',
+          tr('Viteză internet: download, upload, ping', 'Internet speed: download, upload, ping'),
+          () => const SpeedTestPage()),
+      (Icons.route_outlined, 'Traceroute',
+          tr('Drumul pachetelor până la o gazdă', 'Path packets take to a host'),
+          () => const TraceroutePage()),
+      (Icons.network_ping, 'Ping', tr('Latență și pierderi de pachete', 'Latency and packet loss'),
           () => const PingPage()),
-      (Icons.travel_explore, 'Scanare porturi', 'Orice IP sau hostname',
+      (Icons.travel_explore, tr('Scanare porturi', 'Port scan'), tr('Orice IP sau hostname', 'Any IP or hostname'),
           () => const _PortHostPage()),
-      (Icons.power_settings_new, 'Wake-on-LAN', 'Pornește un PC prin rețea',
+      (Icons.power_settings_new, 'Wake-on-LAN', tr('Pornește un PC prin rețea', 'Wake a PC over the network'),
           () => const WolPage()),
-      (Icons.dns_outlined, 'DNS lookup', 'Hostname ↔ IP',
+      (Icons.dns_outlined, 'DNS lookup', tr('Hostname ↔ IP', 'Hostname ↔ IP'),
           () => const DnsPage()),
-      (Icons.info_outline, 'Informații rețea', 'IP local, gateway, IP public',
+      (Icons.info_outline, tr('Informații rețea', 'Network info'), tr('IP local, gateway, IP public', 'Local IP, gateway, public IP'),
           () => const NetInfoPage()),
     ];
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          const SliverAppBar.medium(title: Text('Instrumente')),
+          SliverAppBar.medium(title: Text(tr('Instrumente', 'Tools'))),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
             sliver: SliverGrid.builder(
@@ -162,9 +171,9 @@ class _PingPageState extends State<PingPage> {
             TextField(
               controller: _host,
               enabled: !_running,
-              decoration: const InputDecoration(
-                labelText: 'Gazdă',
-                hintText: '192.168.1.1 sau google.com',
+              decoration: InputDecoration(
+                labelText: tr('Gazdă', 'Host'),
+                hintText: tr('192.168.1.1 sau google.com', '192.168.1.1 or google.com'),
                 prefixIcon: Icon(Icons.dns_outlined),
               ),
               onSubmitted: (_) => _start(),
@@ -208,10 +217,10 @@ class _PingPageState extends State<PingPage> {
                     runSpacing: 12,
                     children: [
                       for (final (l, v) in [
-                        ('Trimise', '${_results.length}'),
-                        ('Pierdere', '$loss%'),
+                        (tr('Trimise', 'Sent'), '${_results.length}'),
+                        (tr('Pierdere', 'Loss'), '$loss%'),
                         ('Min', ok.isEmpty ? '—' : '${f(ok.reduce((a, b) => a < b ? a : b))} ms'),
-                        ('Medie', ok.isEmpty ? '—' : '${f(ok.reduce((a, b) => a + b) / ok.length)} ms'),
+                        (tr('Medie', 'Avg'), ok.isEmpty ? '—' : '${f(ok.reduce((a, b) => a + b) / ok.length)} ms'),
                         ('Max', ok.isEmpty ? '—' : '${f(ok.reduce((a, b) => a > b ? a : b))} ms'),
                       ])
                         Column(
@@ -324,7 +333,7 @@ class _PortHostPageState extends State<_PortHostPage> {
         final v4 = r.where((a) => a.type == InternetAddressType.IPv4);
         host = (v4.isNotEmpty ? v4.first : r.first).address;
       } catch (_) {
-        if (mounted) toast(context, 'Nu pot rezolva „$host”');
+        if (mounted) toast(context, tr('Nu pot rezolva „$host”', 'Cannot resolve “$host”'));
         return;
       }
     }
@@ -342,7 +351,7 @@ class _PortHostPageState extends State<_PortHostPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Scanare porturi')),
+      appBar: AppBar(title: Text(tr('Scanare porturi', 'Port scan'))),
       body: MaxWidth(
         width: 760,
         child: ListView(
@@ -351,8 +360,8 @@ class _PortHostPageState extends State<_PortHostPage> {
             TextField(
               controller: _host,
               autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'IP sau hostname',
+              decoration: InputDecoration(
+                labelText: tr('IP sau hostname', 'IP or hostname'),
                 hintText: '192.168.1.10',
                 prefixIcon: Icon(Icons.dns_outlined),
               ),
@@ -362,7 +371,7 @@ class _PortHostPageState extends State<_PortHostPage> {
             FilledButton.icon(
               onPressed: _go,
               icon: const Icon(Icons.arrow_forward),
-              label: const Text('Continuă'),
+              label: Text(tr('Continuă', 'Continue')),
             ),
           ],
         ),
@@ -391,11 +400,11 @@ class _WolPageState extends State<WolPage> {
 
   Future<void> _send(String mac) async {
     if (normalizeMac(mac) == null) {
-      toast(context, 'Adresă MAC invalidă');
+      toast(context, tr('Adresă MAC invalidă', 'Invalid MAC address'));
       return;
     }
     final ok = await WakeOnLan.send(mac, broadcast: scanner.network?.broadcast);
-    if (mounted) toast(context, ok ? 'Magic packet trimis către $mac' : 'Eroare la trimitere');
+    if (mounted) toast(context, ok ? tr('Magic packet trimis către $mac', 'Magic packet sent to $mac') : tr('Eroare la trimitere', 'Send error'));
   }
 
   @override
@@ -412,8 +421,8 @@ class _WolPageState extends State<WolPage> {
           children: [
             TextField(
               controller: _mac,
-              decoration: const InputDecoration(
-                labelText: 'Adresă MAC',
+              decoration: InputDecoration(
+                labelText: tr('Adresă MAC', 'MAC address'),
                 hintText: 'AA:BB:CC:DD:EE:FF',
                 prefixIcon: Icon(Icons.fingerprint),
               ),
@@ -422,9 +431,9 @@ class _WolPageState extends State<WolPage> {
             FilledButton.icon(
               onPressed: () => _send(_mac.text),
               icon: const Icon(Icons.power_settings_new),
-              label: const Text('Trimite magic packet'),
+              label: Text(tr('Trimite magic packet', 'Send magic packet')),
             ),
-            if (withMac.isNotEmpty) const SectionHeader('Din ultima scanare'),
+            if (withMac.isNotEmpty) SectionHeader(tr('Din ultima scanare', 'From last scan')),
             for (final d in withMac)
               ListTile(
                 leading: DeviceAvatar(device: d, size: 40),
@@ -467,14 +476,14 @@ class _DnsPageState extends State<DnsPage> {
     try {
       if (isValidIp(q)) {
         final r = await InternetAddress(q).reverse().timeout(const Duration(seconds: 5));
-        out.add(r.host == q ? 'Nicio înregistrare PTR' : r.host);
+        out.add(r.host == q ? tr('Nicio înregistrare PTR', 'No PTR record') : r.host);
       } else {
         final r = await InternetAddress.lookup(q).timeout(const Duration(seconds: 5));
         out.addAll(r.map((a) =>
             '${a.address}  (${a.type == InternetAddressType.IPv4 ? 'IPv4' : 'IPv6'})'));
       }
     } catch (e) {
-      out.add('Eroare: nu s-a putut rezolva');
+      out.add(tr('Eroare: nu s-a putut rezolva', 'Error: could not resolve'));
     }
     if (mounted) {
       setState(() {
@@ -502,7 +511,7 @@ class _DnsPageState extends State<DnsPage> {
             TextField(
               controller: _q,
               decoration: InputDecoration(
-                labelText: 'Hostname sau IP',
+                labelText: tr('Hostname sau IP', 'Hostname or IP'),
                 hintText: 'google.com / 192.168.1.1',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _busy
@@ -579,20 +588,20 @@ class _NetInfoPageState extends State<NetInfoPage> {
   Widget build(BuildContext context) {
     final net = scanner.network;
     return Scaffold(
-      appBar: AppBar(title: const Text('Informații rețea')),
+      appBar: AppBar(title: Text(tr('Informații rețea', 'Network info'))),
       body: MaxWidth(
         width: 760,
         child: ListView(
           children: [
-            const SectionHeader('Rețea locală'),
-            InfoRow(Icons.settings_ethernet, 'Interfață', net?.interfaceName),
+            SectionHeader(tr('Rețea locală', 'Local network')),
+            InfoRow(Icons.settings_ethernet, tr('Interfață', 'Interface'), net?.interfaceName),
             InfoRow(Icons.lan_outlined, 'IP local', net?.ip),
-            InfoRow(Icons.fingerprint, 'MAC propriu', net?.selfMac),
-            InfoRow(Icons.account_tree_outlined, 'Subrețea',
-                net == null ? null : '${net.id}  (scanat: ${net.cidr})'),
+            InfoRow(Icons.fingerprint, tr('MAC propriu', 'Own MAC'), net?.selfMac),
+            InfoRow(Icons.account_tree_outlined, tr('Subrețea', 'Subnet'),
+                net == null ? null : tr('${net.id}  (scanat: ${net.cidr})', '${net.id}  (scanned: ${net.cidr})')),
             InfoRow(Icons.router_outlined, 'Gateway', net?.gateway),
             InfoRow(Icons.campaign_outlined, 'Broadcast', net?.broadcast),
-            InfoRow(Icons.computer, 'Nume dispozitiv', Platform.localHostname),
+            InfoRow(Icons.computer, tr('Nume dispozitiv', 'Device name'), Platform.localHostname),
             const SectionHeader('Internet'),
             if (_loading)
               const Padding(
@@ -600,8 +609,8 @@ class _NetInfoPageState extends State<NetInfoPage> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else ...[
-              InfoRow(Icons.public, 'IP public', _publicIp ?? 'Indisponibil'),
-              InfoRow(Icons.business_outlined, 'Furnizor / locație', _isp),
+              InfoRow(Icons.public, tr('IP public', 'Public IP'), _publicIp ?? tr('Indisponibil', 'Unavailable')),
+              InfoRow(Icons.business_outlined, tr('Furnizor / locație', 'ISP / location'), _isp),
             ],
           ],
         ),

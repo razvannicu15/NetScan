@@ -1,24 +1,27 @@
+import '../core/i18n.dart';
 import 'package:flutter/material.dart';
 
 import '../core/ports.dart';
 import '../core/utils.dart';
 
 enum DeviceType {
-  router('Router / rețea', Icons.router_outlined),
-  computer('Calculator', Icons.computer_outlined),
-  phone('Telefon / tabletă', Icons.smartphone_outlined),
-  printer('Imprimantă', Icons.print_outlined),
-  tv('TV / media', Icons.tv_outlined),
-  camera('Cameră', Icons.videocam_outlined),
-  nas('NAS / server', Icons.storage_outlined),
-  speaker('Boxă', Icons.speaker_outlined),
-  console('Consolă', Icons.sports_esports_outlined),
-  iot('Smart home / IoT', Icons.lightbulb_outline),
-  unknown('Necunoscut', Icons.devices_other_outlined);
+  router('Router / rețea', 'Router / network', Icons.router_outlined),
+  computer('Calculator', 'Computer', Icons.computer_outlined),
+  phone('Telefon / tabletă', 'Phone / tablet', Icons.smartphone_outlined),
+  printer('Imprimantă', 'Printer', Icons.print_outlined),
+  tv('TV / media', 'TV / media', Icons.tv_outlined),
+  camera('Cameră', 'Camera', Icons.videocam_outlined),
+  nas('NAS / server', 'NAS / server', Icons.storage_outlined),
+  speaker('Boxă', 'Speaker', Icons.speaker_outlined),
+  console('Consolă', 'Console', Icons.sports_esports_outlined),
+  iot('Smart home / IoT', 'Smart home / IoT', Icons.lightbulb_outline),
+  unknown('Necunoscut', 'Unknown', Icons.devices_other_outlined);
 
-  const DeviceType(this.label, this.icon);
-  final String label;
+  const DeviceType(this._ro, this._en, this.icon);
+  final String _ro;
+  final String _en;
   final IconData icon;
+  String get label => tr(_ro, _en);
 }
 
 class OpenPort {
@@ -68,7 +71,7 @@ class Device {
         clean(mdnsName) ??
         clean(netbiosName) ??
         clean(hostname) ??
-        (isSelf ? 'Acest dispozitiv' : null) ??
+        (isSelf ? tr('Acest dispozitiv', 'This device') : null) ??
         (isGateway ? 'Router' : null) ??
         vendor ??
         ip;
@@ -89,7 +92,7 @@ class Device {
     if (t == null) return null;
     if (t <= 64) return 'Linux / Android / iOS / macOS';
     if (t <= 128) return 'Windows';
-    return 'Echipament de rețea';
+    return tr('Echipament de rețea', 'Network equipment');
   }
 
   /// Key used for persistence (MAC when known, otherwise IP).

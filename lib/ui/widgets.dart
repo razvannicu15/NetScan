@@ -1,3 +1,4 @@
+import '../core/i18n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -116,7 +117,7 @@ class InfoRow extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyLarge),
       trailing: copy
           ? IconButton(
-              tooltip: 'Copiază',
+              tooltip: tr('Copiază', 'Copy'),
               icon: const Icon(Icons.copy_rounded, size: 20),
               onPressed: () => copyText(context, value!),
             )
@@ -129,7 +130,7 @@ void copyText(BuildContext context, String text) {
   Clipboard.setData(ClipboardData(text: text));
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text('Copiat: $text')));
+    ..showSnackBar(SnackBar(content: Text(tr('Copiat: $text', 'Copied: $text'))));
 }
 
 void toast(BuildContext context, String text) {
@@ -140,9 +141,9 @@ void toast(BuildContext context, String text) {
 
 String timeAgo(DateTime t) {
   final d = DateTime.now().difference(t);
-  if (d.inMinutes < 1) return 'acum';
-  if (d.inMinutes < 60) return 'acum ${d.inMinutes} min';
-  if (d.inHours < 24) return 'acum ${d.inHours} h';
-  if (d.inDays < 30) return 'acum ${d.inDays} zile';
+  if (d.inMinutes < 1) return tr('acum', 'now');
+  if (d.inMinutes < 60) return tr('acum ${d.inMinutes} min', '${d.inMinutes} min ago');
+  if (d.inHours < 24) return tr('acum ${d.inHours} h', '${d.inHours} h ago');
+  if (d.inDays < 30) return tr('acum ${d.inDays} zile', '${d.inDays} days ago');
   return '${t.day}.${t.month}.${t.year}';
 }

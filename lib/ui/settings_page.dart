@@ -1,7 +1,9 @@
+import '../core/i18n.dart';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../core/utils.dart';
+import 'about_page.dart';
 import 'widgets.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -25,7 +27,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void _saveRange() {
     final a = _start.text.trim(), b = _end.text.trim();
     if (!isValidIp(a) || !isValidIp(b)) {
-      toast(context, 'Introdu două adrese IPv4 valide');
+      toast(context, tr('Introdu două adrese IPv4 valide', 'Enter two valid IPv4 addresses'));
       return;
     }
     appSettings.update((s) {
@@ -33,7 +35,7 @@ class _SettingsPageState extends State<SettingsPage> {
       s.customEnd = b;
       s.useCustomRange = true;
     });
-    toast(context, 'Interval salvat: $a – $b');
+    toast(context, tr('Interval salvat: $a – $b', 'Range saved: $a – $b'));
   }
 
   @override
@@ -45,48 +47,73 @@ class _SettingsPageState extends State<SettingsPage> {
       builder: (context, _) => Scaffold(
         body: CustomScrollView(
           slivers: [
-            const SliverAppBar.medium(title: Text('Setări')),
+            SliverAppBar.medium(title: Text(tr('Setări', 'Settings'))),
             SliverToBoxAdapter(
               child: MaxWidth(
                 width: 760,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SectionHeader('Aspect'),
+                    SectionHeader(tr('Limbă', 'Language')),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: SegmentedButton<String>(
+                        segments: [
+                          ButtonSegment(
+                              value: 'system',
+                              icon: const Icon(Icons.translate),
+                              label: Text(tr('Auto', 'Auto'))),
+                          const ButtonSegment(value: 'ro', label: Text('Română')),
+                          const ButtonSegment(value: 'en', label: Text('English')),
+                        ],
+                        selected: {appSettings.language},
+                        onSelectionChanged: (v) =>
+                            appSettings.update((x) => x.language = v.first),
+                      ),
+                    ),
+                    SectionHeader(tr('Aspect', 'Appearance')),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: SegmentedButton<ThemeMode>(
-                        segments: const [
+                        segments: [
                           ButtonSegment(
                               value: ThemeMode.system,
                               icon: Icon(Icons.brightness_auto_outlined),
-                              label: Text('Sistem')),
+                              label: Text(tr('Sistem', 'System'))),
                           ButtonSegment(
                               value: ThemeMode.light,
                               icon: Icon(Icons.light_mode_outlined),
-                              label: Text('Luminos')),
+                              label: Text(tr('Luminos', 'Light'))),
                           ButtonSegment(
                               value: ThemeMode.dark,
                               icon: Icon(Icons.dark_mode_outlined),
-                              label: Text('Întunecat')),
+                              label: Text(tr('Întunecat', 'Dark'))),
                         ],
                         selected: {appSettings.themeMode},
                         onSelectionChanged: (s) =>
                             appSettings.update((x) => x.themeMode = s.first),
                       ),
                     ),
-                    const SectionHeader('Scanare'),
+                    SectionHeader(tr('Scanare', 'Scanning')),
                     SwitchListTile(
                       secondary: const Icon(Icons.network_ping),
-                      title: const Text('Folosește ping (ICMP)'),
-                      subtitle: const Text(
-                          'Găsește mai multe dispozitive și estimează sistemul de operare'),
+                      title: Text(tr('Folosește ping (ICMP)', 'Use ping (ICMP)')),
+                      subtitle: Text(
+                          tr('Găsește mai multe dispozitive și estimează sistemul de operare', 'Finds more devices and estimates the operating system')),
                       value: appSettings.usePing,
                       onChanged: (v) => appSettings.update((s) => s.usePing = v),
                     ),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.travel_explore),
+                      title: Text(tr('Scanează porturile la fiecare scanare', 'Scan ports on every scan')),
+                      subtitle: Text(tr('Verifică ~120 de porturi uzuale pe fiecare dispozitiv (mai lent, mai complet)',
+                          'Checks ~120 common ports on every device (slower, more complete)')),
+                      value: appSettings.scanPorts,
+                      onChanged: (v) => appSettings.update((s) => s.scanPorts = v),
+                    ),
                     ListTile(
                       leading: const Icon(Icons.timer_outlined),
-                      title: const Text('Timeout conexiune'),
+                      title: Text(tr('Timeout conexiune', 'Connection timeout')),
                       subtitle: Slider(
                         value: appSettings.probeTimeoutMs.toDouble(),
                         min: 200,
@@ -100,11 +127,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     ListTile(
                       leading: const Icon(Icons.bolt_outlined),
-                      title: const Text('Conexiuni paralele (porturi)'),
+                      title: Text(tr('Conexiuni paralele (porturi)', 'Parallel connections (ports)')),
                       subtitle: Slider(
                         value: appSettings.portConcurrency.toDouble(),
-                        min: 16,
-                        max: 512,
+                        min: 8,
+                        max: 256,
                         divisions: 31,
                         label: '${appSettings.portConcurrency}',
                         onChanged: (v) => appSettings
@@ -114,10 +141,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     SwitchListTile(
                       secondary: const Icon(Icons.tune),
-                      title: const Text('Interval IP personalizat'),
+                      title: Text(tr('Interval IP personalizat', 'Custom IP range')),
                       subtitle: Text(appSettings.useCustomRange
                           ? '${appSettings.customStart} – ${appSettings.customEnd}'
-                          : 'Automat: subrețeaua curentă'),
+                          : tr('Automat: subrețeaua curentă', 'Automatic: current subnet')),
                       value: appSettings.useCustomRange,
                       onChanged: (v) {
                         if (v &&
@@ -143,7 +170,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               child: TextField(
                                 controller: _start,
                                 decoration:
-                                    const InputDecoration(labelText: 'De la'),
+                                    InputDecoration(labelText: tr('De la', 'From')),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -151,7 +178,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               child: TextField(
                                 controller: _end,
                                 decoration:
-                                    const InputDecoration(labelText: 'Până la'),
+                                    InputDecoration(labelText: tr('Până la', 'To')),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -162,54 +189,45 @@ class _SettingsPageState extends State<SettingsPage> {
                           ],
                         ),
                       ),
-                    const SectionHeader('Date'),
+                    SectionHeader(tr('Date', 'Data')),
                     ListTile(
                       leading: const Icon(Icons.delete_sweep_outlined),
-                      title: const Text('Șterge istoricul dispozitivelor'),
-                      subtitle: const Text(
-                          'Numele personalizate și dispozitivele offline'),
+                      title: Text(tr('Șterge istoricul dispozitivelor', 'Clear device history')),
+                      subtitle: Text(
+                          tr('Numele personalizate și dispozitivele offline', 'Custom names and offline devices')),
                       onTap: () async {
                         final ok = await showDialog<bool>(
                           context: context,
                           builder: (ctx) => AlertDialog(
-                            title: const Text('Ștergi istoricul?'),
-                            content: const Text(
-                                'Se pierd numele personalizate și lista dispozitivelor văzute anterior.'),
+                            title: Text(tr('Ștergi istoricul?', 'Clear history?')),
+                            content: Text(
+                                tr('Se pierd numele personalizate și lista dispozitivelor văzute anterior.', 'Custom names and the list of previously seen devices will be lost.')),
                             actions: [
                               TextButton(
                                   onPressed: () => Navigator.pop(ctx, false),
-                                  child: const Text('Anulează')),
+                                  child: Text(tr('Anulează', 'Cancel'))),
                               FilledButton(
                                   onPressed: () => Navigator.pop(ctx, true),
-                                  child: const Text('Șterge')),
+                                  child: Text(tr('Șterge', 'Clear'))),
                             ],
                           ),
                         );
                         if (ok == true) {
                           await scanner.clearHistory();
-                          if (context.mounted) toast(context, 'Istoric șters');
+                          if (context.mounted) toast(context, tr('Istoric șters', 'History cleared'));
                         }
                       },
                     ),
-                    const SectionHeader('Despre'),
+                    SectionHeader(tr('Despre', 'About')),
                     ListTile(
                       leading: Icon(Icons.radar, color: cs.primary),
-                      title: const Text('NetScan 1.0'),
-                      subtitle: const Text(
-                          'Scanner de rețea: dispozitive, IP, MAC, producător, porturi.'),
+                      title: const Text('NetScan'),
+                      subtitle: Text(tr('by norAz · fără reclame', 'by norAz · no ads')),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(context,
+                          MaterialPageRoute<void>(builder: (_) => const AboutPage())),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
-                      child: Text(
-                        'Notă Android: începând cu Android 10, aplicațiile nu mai pot citi '
-                        'tabela ARP, deci adresa MAC apare doar pentru dispozitivele care o '
-                        'anunță prin NetBIOS (ex. PC-uri Windows). Pe Windows, MAC-ul apare '
-                        'pentru toate dispozitivele din rețeaua locală.\n\n'
-                        'Folosește NetScan doar în rețele pe care le administrezi sau ai '
-                        'permisiunea să le scanezi.',
-                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                      ),
-                    ),
+                    const SizedBox(height: 32),
                   ],
                 ),
               ),

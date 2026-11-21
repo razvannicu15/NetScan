@@ -1,3 +1,4 @@
+import '../core/i18n.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -26,6 +27,7 @@ class _PortScanPageState extends State<PortScanPage> {
   final List<OpenPort> _open = [];
   int _done = 0;
   int _total = 0;
+  int _portCount = 0;
   bool _running = false;
   bool _finished = false;
   CancelToken? _cancel;
@@ -47,7 +49,7 @@ class _PortScanPageState extends State<PortScanPage> {
   Future<void> _start() async {
     final ports = _ports();
     if (ports == null) {
-      toast(context, 'Listă de porturi invalidă. Exemplu: 22,80,8000-8100');
+      toast(context, tr('Listă de porturi invalidă. Exemplu: 22,80,8000-8100', 'Invalid port list. Example: 22,80,8000-8100'));
       return;
     }
     final cancel = _cancel = CancelToken();
@@ -55,6 +57,7 @@ class _PortScanPageState extends State<PortScanPage> {
       _open.clear();
       _done = 0;
       _total = ports.length;
+      _portCount = ports.length;
       _running = true;
       _finished = false;
     });
@@ -78,7 +81,12 @@ class _PortScanPageState extends State<PortScanPage> {
         });
       },
       onProgress: (d, t) {
-        if (mounted) setState(() => _done = d);
+        if (mounted) {
+          setState(() {
+            _done = d;
+            _total = t;
+          });
+        }
       },
     );
     _sw.stop();
@@ -121,11 +129,11 @@ class _PortScanPageState extends State<PortScanPage> {
     final progress = _total == 0 ? 0.0 : _done / _total;
 
     return Scaffold(
-      appBar: AppBar(title: Text('Porturi · ${widget.host}')),
+      appBar: AppBar(title: Text(tr('Porturi · ${widget.host}', 'Ports · ${widget.host}'))),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _running ? () => _cancel?.cancel() : _start,
         icon: Icon(_running ? Icons.stop_rounded : Icons.play_arrow_rounded),
-        label: Text(_running ? 'Oprește' : 'Pornește'),
+        label: Text(_running ? tr('Oprește', 'Stop') : tr('Pornește', 'Start')),
       ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 96),
@@ -137,17 +145,17 @@ class _PortScanPageState extends State<PortScanPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Ce porturi verific?', style: tt.titleSmall),
+                  Text(tr('Ce porturi verific?', 'Which ports to check?'), style: tt.titleSmall),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
                       for (final (p, label) in [
-                        (_Preset.top, 'Uzuale (${kTopPorts.length})'),
+                        (_Preset.top, tr('Uzuale (${kTopPorts.length})', 'Common (${kTopPorts.length})')),
                         (_Preset.wellKnown, '1–1024'),
-                        (_Preset.full, 'Toate (65535)'),
-                        (_Preset.custom, 'Personalizat'),
+                        (_Preset.full, tr('Toate (65535)', 'All (65535)')),
+                        (_Preset.custom, tr('Personalizat', 'Custom')),
                       ])
                         ChoiceChip(
                           label: Text(label),
@@ -163,8 +171,8 @@ class _PortScanPageState extends State<PortScanPage> {
                     TextField(
                       controller: _custom,
                       enabled: !_running,
-                      decoration: const InputDecoration(
-                        labelText: 'Porturi',
+                      decoration: InputDecoration(
+                        labelText: tr('Porturi', 'Ports'),
                         hintText: '22,80,443,8000-8100',
                         prefixIcon: Icon(Icons.tag),
                       ),
@@ -187,12 +195,14 @@ class _PortScanPageState extends State<PortScanPage> {
                                 Expanded(
                                   child: Text(
                                     _running
-                                        ? 'Scanez… $_done / $_total'
-                                        : 'Gata: $_done porturi în ${(_sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s',
+                                        ? (_done >= _portCount
+                                            ? tr('Verific din nou porturile lente… $_done / $_total', 'Re-checking slow ports… $_done / $_total')
+                                            : tr('Scanez… $_done / $_total', 'Scanning… $_done / $_total'))
+                                        : tr('Gata: $_portCount porturi în ${(_sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s', 'Done: $_portCount ports in ${(_sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s'),
                                     style: tt.titleSmall,
                                   ),
                                 ),
-                                Text('${_open.length} deschise',
+                                Text(tr('${_open.length} deschise', '${_open.length} open'),
                                     style: tt.titleSmall
                                         ?.copyWith(color: cs.primary)),
                               ],
@@ -216,7 +226,7 @@ class _PortScanPageState extends State<PortScanPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (_open.isNotEmpty) const SectionHeader('Porturi deschise'),
+                if (_open.isNotEmpty) SectionHeader(tr('Porturi deschise', 'Open ports')),
                 for (final o in _open)
                   PortTile(
                     port: o.port,
@@ -230,7 +240,7 @@ class _PortScanPageState extends State<PortScanPage> {
                   Padding(
                     padding: const EdgeInsets.all(24),
                     child: Text(
-                      'Niciun port deschis găsit (sau gazda filtrează conexiunile).',
+                      tr('Niciun port deschis găsit (sau gazda filtrează conexiunile).', 'No open ports found (or the host filters connections).'),
                       textAlign: TextAlign.center,
                       style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
                     ),
