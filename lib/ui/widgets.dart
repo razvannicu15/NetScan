@@ -117,28 +117,30 @@ class InfoRow extends StatelessWidget {
     return InkWell(
       onTap: copy ? () => copyText(context, value!) : null,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(icon, size: 18, color: cs.onSurfaceVariant),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 132,
-              child: Text(label,
-                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
-            ),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text(value!,
-                  style: tt.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
+                  const SizedBox(height: 1),
+                  Text(value!,
+                      style: tt.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                          fontFeatures: const [FontFeature.tabularFigures()])),
+                ],
+              ),
             ),
             if (copy)
               Padding(
-                padding: const EdgeInsets.only(left: 6, top: 1),
+                padding: const EdgeInsets.only(left: 8),
                 child: Icon(Icons.copy_rounded,
-                    size: 15, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                    size: 15, color: cs.onSurfaceVariant.withValues(alpha: 0.45)),
               ),
           ],
         ),

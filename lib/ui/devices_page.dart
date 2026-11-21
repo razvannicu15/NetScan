@@ -370,7 +370,14 @@ class _ScanFabState extends State<_ScanFab>
   }
 }
 
-class _NetworkCard extends StatelessWidget {
+class _NetworkCard extends StatefulWidget {
+  @override
+  State<_NetworkCard> createState() => _NetworkCardState();
+}
+
+class _NetworkCardState extends State<_NetworkCard> {
+  bool _expanded = false;
+
   IconData _wifiIcon(int? p) {
     if (p == null) return Icons.wifi_rounded;
     if (p >= 75) return Icons.signal_wifi_4_bar;
@@ -426,9 +433,18 @@ class _NetworkCard extends StatelessWidget {
     ];
 
     final gw = scanner.gateway;
-    final stats = <(String, String)>[
+    final mainStats = <(String, String)>[
       (tr('Dispozitive', 'Devices'), '${scanner.devices.length}'),
       (tr('IP-ul tău', 'Your IP'), net?.ip ?? '—'),
+      if (scanner.unknownDevices.isNotEmpty)
+        (tr('Necunoscute', 'Unknown'), '${scanner.unknownDevices.length}'),
+    ];
+    final subtitle = (wifi != null && wifi.signalPercent != null)
+        ? '${tr('Semnal', 'Signal')} ${wifi.signalPercent}% · ${wifi.signalLabel}${wifi.band != null ? ' · ${wifi.band}' : ''}'
+        : (wifi != null && wifi.isWifi)
+            ? (net?.interfaceName ?? 'Wi-Fi')
+            : null;
+    final stats = <(String, String)>[
       ('Gateway', net?.gateway ?? '—'),
       (tr('Interval', 'Range'), scanner.targetDescription),
       if (gw?.vendor != null) ('Router', gw!.vendor!),
@@ -444,7 +460,13 @@ class _NetworkCard extends StatelessWidget {
         color: cs.primaryContainer,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
+        child: InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 12, 18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -461,20 +483,29 @@ class _NetworkCard extends StatelessWidget {
                             style: tt.titleLarge?.copyWith(
                                 color: onC, fontWeight: FontWeight.w700),
                             overflow: TextOverflow.ellipsis),
-                        if (wifi != null && wifi.isWifi)
+                        if (subtitle != null)
                           Text(
-                            net?.interfaceName ?? 'Wi-Fi',
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: tt.bodySmall
-                                ?.copyWith(color: onC.withValues(alpha: 0.7)),
+                                ?.copyWith(color: onC.withValues(alpha: 0.75)),
                           ),
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: tr('Redetectează rețeaua', 'Re-detect network'),
-                    onPressed: scanning ? null : scanner.refreshNetwork,
-                    icon: Icon(Icons.refresh_rounded, color: onC),
+                  if (_expanded)
+                    IconButton(
+                      tooltip: tr('Redetectează rețeaua', 'Re-detect network'),
+                      onPressed: scanning ? null : scanner.refreshNetwork,
+                      icon: Icon(Icons.refresh_rounded, color: onC),
+                    ),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(Icons.expand_more, color: onC),
                   ),
+                  const SizedBox(width: 8),
                 ],
               ),
               if (wifi != null && (wifi.needsLocation || wifi.locationOff)) ...[
@@ -490,10 +521,8 @@ class _NetworkCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           wifi.needsLocation
-                              ? tr('Atinge pentru a permite Locația — Android o cere ca să arate numele Wi-Fi',
-                                  'Tap to allow Location — Android requires it to show the Wi-Fi name')
-                              : tr('Pornește Locația din telefon ca să vezi numele Wi-Fi',
-                                  'Turn on Location to see the Wi-Fi name'),
+                              ? tr('Permite Locația ca să vezi numele Wi-Fi', 'Allow Location to see the Wi-Fi name')
+                              : tr('Pornește Locația ca să vezi numele Wi-Fi', 'Turn on Location to see the Wi-Fi name'),
                           style: tt.bodySmall?.copyWith(color: onC),
                         ),
                       ),
@@ -501,7 +530,16 @@ class _NetworkCard extends StatelessWidget {
                   ),
                 ),
               ],
-              if (chips.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Wrap(
+                  spacing: 24,
+                  runSpacing: 12,
+                  children: [for (final st in mainStats) _Stat(st.$1, st.$2)],
+                ),
+              ),
+              if (_expanded && chips.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 6,
@@ -525,16 +563,18 @@ class _NetworkCard extends StatelessWidget {
                   ],
                 ),
               ],
-              const SizedBox(height: 14),
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Wrap(
-                  spacing: 24,
-                  runSpacing: 12,
-                  children: [for (final st in stats) _Stat(st.$1, st.$2)],
+              if (_expanded) ...[
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Wrap(
+                    spacing: 24,
+                    runSpacing: 12,
+                    children: [for (final st in stats) _Stat(st.$1, st.$2)],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+              ],
+              const SizedBox(height: 14),
               if (scanning) ...[
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
@@ -561,6 +601,8 @@ class _NetworkCard extends StatelessWidget {
                 style: tt.bodyMedium?.copyWith(color: onC.withValues(alpha: 0.85)),
               ),
             ],
+          ),
+          ),
           ),
         ),
       ),
