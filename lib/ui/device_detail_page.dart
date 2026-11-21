@@ -67,6 +67,13 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     if (!ok && mounted) toast(context, tr('Nu pot deschide $uri', 'Cannot open $uri'));
   }
 
+  String _uptime(int sec) {
+    final d = sec ~/ 86400, h = (sec % 86400) ~/ 3600, m = (sec % 3600) ~/ 60;
+    if (d > 0) return tr('$d zile $h h', '$d days $h h');
+    if (h > 0) return '$h h $m min';
+    return '$m min';
+  }
+
   Future<void> _forget() async {
     await scanner.forget(d);
     if (mounted) Navigator.pop(context);
@@ -129,6 +136,21 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                                   ? cs.onSecondaryContainer
                                   : cs.onSurfaceVariant),
                           if (d.isSelf) TagChip(tr('ACEST DISPOZITIV', 'THIS DEVICE')),
+                          if (!d.isSelf)
+                            FilterChip(
+                              visualDensity: VisualDensity.compact,
+                              avatar: d.known
+                                  ? null
+                                  : Icon(Icons.help_outline, size: 16, color: cs.error),
+                              label: Text(d.known
+                                  ? tr('Cunoscut', 'Known')
+                                  : tr('Marchează ca cunoscut', 'Mark as known')),
+                              selected: d.known,
+                              onSelected: (v) async {
+                                await scanner.setKnown(d, v);
+                                if (mounted) setState(() {});
+                              },
+                            ),
                           if (d.isGateway)
                             TagChip('GATEWAY',
                                 color: cs.tertiaryContainer,
@@ -228,6 +250,12 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                             .whereType<String>()
                             .join(' ')
                             .trim()),
+                    InfoRow(Icons.lan, tr('Nume SNMP', 'SNMP name'), d.snmpName),
+                    InfoRow(Icons.description_outlined, tr('Descriere SNMP', 'SNMP description'), d.snmpDescr),
+                    InfoRow(Icons.place_outlined, tr('Locație SNMP', 'SNMP location'), d.snmpLocation),
+                    InfoRow(Icons.timelapse, 'Uptime',
+                        d.snmpUptimeSec == null ? null : _uptime(d.snmpUptimeSec!),
+                        copy: false),
                     InfoRow(Icons.memory, 'Server', d.serverHeader),
                     InfoRow(Icons.computer, tr('Sistem (după TTL)', 'OS (from TTL)'),
                         d.osGuess == null ? null : '${d.osGuess} · TTL ${d.ttl}',

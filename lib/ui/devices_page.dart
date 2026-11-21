@@ -6,9 +6,12 @@ import '../app_state.dart';
 import '../core/utils.dart';
 import '../models/device.dart';
 import 'device_detail_page.dart';
+import 'security_page.dart';
 import 'widgets.dart';
 
 enum _Sort { ip, name, vendor, type }
+
+enum _View { all, unknown, cameras }
 
 class DevicesPage extends StatefulWidget {
   const DevicesPage({super.key});
@@ -21,6 +24,7 @@ class _DevicesPageState extends State<DevicesPage> {
   String _query = '';
   _Sort _sort = _Sort.ip;
   bool _showOffline = false;
+  _View _view = _View.all;
 
   List<Device> _filter(List<Device> list) {
     final q = _query.trim().toLowerCase();
@@ -62,7 +66,16 @@ class _DevicesPageState extends State<DevicesPage> {
     return ListenableBuilder(
       listenable: scanner,
       builder: (context, _) {
-        final online = _filter(scanner.devices);
+        final unknown = scanner.unknownDevices;
+        final cameras = scanner.cameras;
+        if (_view == _View.unknown && unknown.isEmpty) _view = _View.all;
+        if (_view == _View.cameras && cameras.isEmpty) _view = _View.all;
+        final online = _filter(switch (_view) {
+          _View.all => scanner.devices,
+          _View.unknown => unknown,
+          _View.cameras => cameras,
+        });
+        final done = !scanner.scanning && scanner.lastScan != null;
         final offline = _filter(scanner.offlineDevices);
         return Scaffold(
           floatingActionButton: _ScanFab(
@@ -99,6 +112,42 @@ class _DevicesPageState extends State<DevicesPage> {
                               toast(context, tr('Lista a fost copiată ca CSV', 'List copied as CSV'));
                             },
                     ),
+                    PopupMenuButton<int>(
+                      tooltip: tr('Mai multe', 'More'),
+                      onSelected: (v) async {
+                        if (v == 1) {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: Text(tr('Marchezi toate ca cunoscute?', 'Mark all as known?')),
+                              content: Text(tr(
+                                  'Toate dispozitivele de acum devin „ale tale”. De acum încolo, orice dispozitiv nou va apărea ca necunoscut.',
+                                  'All current devices become “yours”. From now on, any new device will show as unknown.')),
+                              actions: [
+                                TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: Text(tr('Anulează', 'Cancel'))),
+                                FilledButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: Text(tr('Marchează', 'Mark'))),
+                              ],
+                            ),
+                          );
+                          if (ok == true) await scanner.markAllKnown();
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        PopupMenuItem(
+                          value: 1,
+                          enabled: scanner.devices.isNotEmpty && !scanner.scanning,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.verified_user_outlined),
+                            title: Text(tr('Marchează toate ca cunoscute', 'Mark all as known')),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(width: 4),
                   ],
                 ),
@@ -115,6 +164,56 @@ class _DevicesPageState extends State<DevicesPage> {
                           leading: const Icon(Icons.search),
                           elevation: const WidgetStatePropertyAll(0),
                           onChanged: (v) => setState(() => _query = v),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (done && scanner.devices.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: MaxWidth(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                        child: Row(
+                          children: [
+                            ChoiceChip(
+                              label: Text('${tr('Toate', 'All')} · ${scanner.devices.length}'),
+                              selected: _view == _View.all,
+                              onSelected: (_) => setState(() => _view = _View.all),
+                            ),
+                            if (unknown.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                avatar: Icon(Icons.person_search,
+                                    size: 18,
+                                    color: Theme.of(context).colorScheme.error),
+                                label: Text('${tr('Necunoscute', 'Unknown')} · ${unknown.length}'),
+                                selected: _view == _View.unknown,
+                                onSelected: (_) =>
+                                    setState(() => _view = _View.unknown),
+                              ),
+                            ],
+                            if (cameras.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                avatar: const Icon(Icons.videocam_outlined, size: 18),
+                                label: Text('${tr('Camere', 'Cameras')} · ${cameras.length}'),
+                                selected: _view == _View.cameras,
+                                onSelected: (_) =>
+                                    setState(() => _view = _View.cameras),
+                              ),
+                            ],
+                            const SizedBox(width: 8),
+                            ActionChip(
+                              avatar: const Icon(Icons.shield_outlined, size: 18),
+                              label: Text(tr('Securitate', 'Security')),
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                    builder: (_) => const SecurityPage()),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -554,6 +653,12 @@ class _DeviceTile extends StatelessWidget {
                             TagChip('ROUTER',
                                 color: cs.tertiaryContainer,
                                 onColor: cs.onTertiaryContainer),
+                          ],
+                          if (scanner.usesKnown && !d.known && !d.isSelf && d.online) ...[
+                            const SizedBox(width: 6),
+                            TagChip(tr('NECUNOSCUT', 'UNKNOWN'),
+                                color: cs.errorContainer,
+                                onColor: cs.onErrorContainer),
                           ],
                           if (d.isNew) ...[
                             const SizedBox(width: 6),

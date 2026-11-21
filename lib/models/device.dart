@@ -45,6 +45,11 @@ class Device {
   String? upnpModel;
   String? upnpManufacturer;
   String? serverHeader;
+  String? snmpName;
+  String? snmpDescr;
+  String? snmpLocation;
+  int? snmpUptimeSec;
+  bool known = false;
   int? ttl;
   double? latencyMs;
   final Set<int> discoveryPorts = {};
@@ -68,6 +73,7 @@ class Device {
     }
 
     return clean(upnpName) ??
+        clean(snmpName) ??
         clean(mdnsName) ??
         clean(netbiosName) ??
         clean(hostname) ??
@@ -95,6 +101,14 @@ class Device {
     return tr('Echipament de rețea', 'Network equipment');
   }
 
+  bool get isCamera {
+    final p = allKnownPorts;
+    return type == DeviceType.camera ||
+        p.contains(554) ||
+        p.contains(8554) ||
+        p.contains(37777);
+  }
+
   /// Key used for persistence (MAC when known, otherwise IP).
   String get storeKey => mac ?? 'ip:$ip';
 
@@ -107,6 +121,8 @@ class Device {
         'mdns': mdnsName,
         'upnp': upnpName,
         'customName': customName,
+        'known': known,
+        'snmp': snmpName,
         'firstSeen': firstSeen.toIso8601String(),
         'lastSeen': lastSeen.toIso8601String(),
         'ports': discoveryPorts.toList(),
@@ -121,6 +137,8 @@ class Device {
       ..mdnsName = j['mdns'] as String?
       ..upnpName = j['upnp'] as String?
       ..customName = j['customName'] as String?
+      ..known = j['known'] as bool? ?? false
+      ..snmpName = j['snmp'] as String?
       ..online = false;
     d.firstSeen = DateTime.tryParse(j['firstSeen'] as String? ?? '') ??
         DateTime.now();
@@ -148,6 +166,8 @@ class DeviceClassifier {
       d.upnpModel,
       d.upnpManufacturer,
       d.serverHeader,
+      d.snmpName,
+      d.snmpDescr,
     ].whereType<String>().join(' ').toLowerCase();
     final p = d.allKnownPorts;
 

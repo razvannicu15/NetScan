@@ -402,3 +402,175 @@ class WakeOnLan {
     }
   }
 }
+
+// ====================================================================== SNMP
+
+class SnmpInfo {
+  String? name;
+  String? descr;
+  String? location;
+  int? uptimeSec;
+}
+
+/// Minimal SNMP v2c/v1 GET (community "public") for system.* values.
+class SnmpService {
+  static const _oids = {
+    'descr': [0x2B, 6, 1, 2, 1, 1, 1, 0],
+    'uptime': [0x2B, 6, 1, 2, 1, 1, 3, 0],
+    'name': [0x2B, 6, 1, 2, 1, 1, 5, 0],
+    'location': [0x2B, 6, 1, 2, 1, 1, 6, 0],
+  };
+
+  static List<int> _len(int n) {
+    if (n < 128) return [n];
+    final b = <int>[];
+    var v = n;
+    while (v > 0) {
+      b.insert(0, v & 0xFF);
+      v >>= 8;
+    }
+    return [0x80 | b.length, ...b];
+  }
+
+  static List<int> _tlv(int tag, List<int> value) =>
+      [tag, ..._len(value.length), ...value];
+
+  static List<int> _int(int v) {
+    final b = <int>[];
+    var x = v;
+    do {
+      b.insert(0, x & 0xFF);
+      x >>= 8;
+    } while (x > 0);
+    if (b.first & 0x80 != 0) b.insert(0, 0);
+    return _tlv(0x02, b);
+  }
+
+  static Uint8List _request(int version, int id) {
+    final varbinds = <int>[];
+    for (final oid in _oids.values) {
+      varbinds.addAll(_tlv(0x30, [..._tlv(0x06, oid), 0x05, 0x00]));
+    }
+    final pdu = _tlv(0xA0, [
+      ..._int(id),
+      ..._int(0),
+      ..._int(0),
+      ..._tlv(0x30, varbinds),
+    ]);
+    return Uint8List.fromList(_tlv(0x30, [
+      ..._int(version),
+      ..._tlv(0x04, ascii.encode('public')),
+      ...pdu,
+    ]));
+  }
+
+  /// Returns list of (tag, value) children inside [d] from [start] to [end].
+  static List<(int, Uint8List)> _children(Uint8List d, int start, int end) {
+    final out = <(int, Uint8List)>[];
+    var i = start;
+    while (i + 2 <= end) {
+      final tag = d[i];
+      var len = d[i + 1];
+      var off = i + 2;
+      if (len & 0x80 != 0) {
+        final n = len & 0x7F;
+        if (n == 0 || n > 3 || off + n > end) break;
+        len = 0;
+        for (var k = 0; k < n; k++) {
+          len = (len << 8) | d[off + k];
+        }
+        off += n;
+      }
+      if (off + len > end) break;
+      out.add((tag, Uint8List.sublistView(d, off, off + len)));
+      i = off + len;
+    }
+    return out;
+  }
+
+  static SnmpInfo? _parse(Uint8List d) {
+    try {
+      final top = _children(d, 0, d.length);
+      if (top.isEmpty || top.first.$1 != 0x30) return null;
+      final msg = _children(top.first.$2, 0, top.first.$2.length);
+      final pdu = msg.where((e) => e.$1 == 0xA2).firstOrNull;
+      if (pdu == null) return null;
+      final parts = _children(pdu.$2, 0, pdu.$2.length);
+      if (parts.length < 4) return null;
+      final vbs = _children(parts[3].$2, 0, parts[3].$2.length);
+      final info = SnmpInfo();
+      var any = false;
+      for (final vb in vbs) {
+        final kv = _children(vb.$2, 0, vb.$2.length);
+        if (kv.length < 2 || kv[0].$1 != 0x06) continue;
+        final oid = kv[0].$2;
+        final tag = kv[1].$1;
+        final val = kv[1].$2;
+        String? key;
+        _oids.forEach((k, v) {
+          if (v.length == oid.length &&
+              List.generate(v.length, (i) => v[i] == oid[i]).every((x) => x)) {
+            key = k;
+          }
+        });
+        if (key == null) continue;
+        if (tag == 0x04) {
+          final text = utf8
+              .decode(val, allowMalformed: true)
+              .replaceAll(RegExp(r'[\x00-\x1F]+'), ' ')
+              .trim();
+          if (text.isEmpty) continue;
+          any = true;
+          switch (key) {
+            case 'descr':
+              info.descr = text.length > 160 ? '${text.substring(0, 160)}…' : text;
+            case 'name':
+              info.name = text;
+            case 'location':
+              info.location = text;
+          }
+        } else if (tag == 0x43 && key == 'uptime') {
+          var t = 0;
+          for (final b in val) {
+            t = (t << 8) | b;
+          }
+          info.uptimeSec = t ~/ 100;
+          any = true;
+        }
+      }
+      return any ? info : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, SnmpInfo>> queryAll(List<String> ips,
+      {Duration wait = const Duration(milliseconds: 1600)}) async {
+    final results = <String, SnmpInfo>{};
+    if (ips.isEmpty) return results;
+    RawDatagramSocket? sock;
+    try {
+      final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      sock = s;
+      s.listen((e) {
+        if (e != RawSocketEvent.read) return;
+        final dg = s.receive();
+        if (dg == null) return;
+        final info = _parse(dg.data);
+        if (info != null) results[dg.address.address] = info;
+      });
+      final rnd = Random();
+      for (final version in [1, 0]) {
+        for (final ip in ips) {
+          if (results.containsKey(ip)) continue;
+          s.send(_request(version, rnd.nextInt(0x7FFFFFFF)), InternetAddress(ip), 161);
+        }
+        await Future<void>.delayed(Duration(milliseconds: wait.inMilliseconds ~/ 2));
+      }
+    } catch (_) {
+    } finally {
+      sock?.close();
+    }
+    return results;
+  }
+}

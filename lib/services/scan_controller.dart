@@ -249,10 +249,20 @@ class ScanController extends ChangeNotifier {
       NetbiosService.queryAll(ips),
       MdnsService.reverseAll(ips),
       ssdpFuture,
+      SnmpService.queryAll(ips),
     ]);
     final nb = results[0] as Map<String, NetbiosInfo>;
     final md = results[1] as Map<String, String>;
     final up = results[2] as Map<String, UpnpInfo>;
+    final sn = results[3] as Map<String, SnmpInfo>;
+    sn.forEach((ip, info) {
+      final d = _devices[ip];
+      if (d == null) return;
+      d.snmpName = info.name;
+      d.snmpDescr = info.descr;
+      d.snmpLocation = info.location;
+      d.snmpUptimeSec = info.uptimeSec;
+    });
 
     nb.forEach((ip, info) {
       final d = _devices[ip];
@@ -333,6 +343,7 @@ class ScanController extends ChangeNotifier {
           (d.mac == null ? null : known['ip:${d.ip}']);
       if (prev != null) {
         d.customName = prev.customName;
+        d.known = prev.known;
         d.firstSeen = prev.firstSeen;
         d.isNew = false;
       } else {
@@ -362,6 +373,40 @@ class ScanController extends ChangeNotifier {
       history.forNetwork(net.id)[d.storeKey] = d;
       await history.save();
     }
+    notifyListeners();
+  }
+
+  /// True once the user marked at least one device (besides this one) as known.
+  bool get usesKnown {
+    final net = network;
+    if (net == null) return false;
+    return history.forNetwork(net.id).values.any((d) => d.known && !d.isSelf) ||
+        _devices.values.any((d) => d.known && !d.isSelf);
+  }
+
+  List<Device> get unknownDevices =>
+      usesKnown ? devices.where((d) => !d.known && !d.isSelf).toList() : [];
+
+  List<Device> get cameras => devices.where((d) => d.isCamera).toList();
+
+  Future<void> setKnown(Device d, bool known) async {
+    d.known = known;
+    final net = network;
+    if (net != null) {
+      history.forNetwork(net.id)[d.storeKey] = d;
+      await history.save();
+    }
+    notifyListeners();
+  }
+
+  Future<void> markAllKnown() async {
+    final net = network;
+    for (final d in _devices.values) {
+      d.known = true;
+      d.isNew = false;
+      if (net != null) history.forNetwork(net.id)[d.storeKey] = d;
+    }
+    await history.save();
     notifyListeners();
   }
 
