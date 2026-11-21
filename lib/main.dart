@@ -52,6 +52,11 @@ class NetScanApp extends StatelessWidget {
         themeMode: appSettings.themeMode,
         theme: _theme(Brightness.light),
         darkTheme: _theme(Brightness.dark),
+        // Ignore the system font size so layouts stay as designed.
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+          child: child ?? const SizedBox.shrink(),
+        ),
         home: const HomeShell(),
       ),
     );
