@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../core/utils.dart';
 import '../models/device.dart';
-import '../services/scan_controller.dart';
 import 'device_detail_page.dart';
 import 'widgets.dart';
 
@@ -179,12 +178,71 @@ class _ScanFab extends StatelessWidget {
 }
 
 class _NetworkCard extends StatelessWidget {
+  IconData _wifiIcon(int? p) {
+    if (p == null) return Icons.wifi_rounded;
+    if (p >= 75) return Icons.signal_wifi_4_bar;
+    if (p >= 50) return Icons.network_wifi_3_bar;
+    if (p >= 30) return Icons.network_wifi_2_bar;
+    return Icons.network_wifi_1_bar;
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final net = scanner.network;
+    final wifi = scanner.wifi;
     final scanning = scanner.scanning;
+    final onC = cs.onPrimaryContainer;
+
+    final String title;
+    final IconData icon;
+    if (net == null) {
+      title = scanner.detectingNetwork
+          ? tr('Detectez rețeaua…', 'Detecting network…')
+          : tr('Nicio rețea locală', 'No local network');
+      icon = Icons.wifi_off_rounded;
+    } else if (wifi != null && wifi.isWifi) {
+      title = wifi.ssid ?? 'Wi-Fi';
+      icon = _wifiIcon(wifi.signalPercent);
+    } else {
+      title = net.interfaceName;
+      icon = Icons.settings_ethernet;
+    }
+
+    final chips = <(IconData, String)>[
+      if (wifi != null && wifi.signalPercent != null)
+        (
+          Icons.signal_cellular_alt,
+          '${wifi.signalPercent}%${wifi.rssi != null ? ' · ${wifi.rssi} dBm' : ''} · ${wifi.signalLabel}'
+        ),
+      if (wifi?.band != null)
+        (
+          Icons.waves,
+          '${wifi!.band}${wifi.channel != null ? ' · ${tr('canal', 'ch')} ${wifi.channel}' : ''}'
+        ),
+      if (wifi?.standard != null) (Icons.wifi_tethering, wifi!.standard!),
+      if (wifi?.linkMbps != null || wifi?.rxMbps != null)
+        (
+          Icons.speed,
+          wifi!.rxMbps != null && wifi.txMbps != null
+              ? '↓${wifi.rxMbps} ↑${wifi.txMbps} Mbps'
+              : '${wifi.linkMbps ?? wifi.rxMbps} Mbps'
+        ),
+      if (wifi?.security != null) (Icons.lock_outline, wifi!.security!),
+    ];
+
+    final gw = scanner.gateway;
+    final stats = <(String, String)>[
+      (tr('Dispozitive', 'Devices'), '${scanner.devices.length}'),
+      (tr('IP-ul tău', 'Your IP'), net?.ip ?? '—'),
+      ('Gateway', net?.gateway ?? '—'),
+      (tr('Interval', 'Range'), scanner.targetDescription),
+      if (gw?.vendor != null) ('Router', gw!.vendor!),
+      if (wifi?.bssid != null) ('BSSID', wifi!.bssid!),
+      if (scanner.publicIp != null) (tr('IP public', 'Public IP'), scanner.publicIp!),
+      if (scanner.isp != null && scanner.isp!.isNotEmpty) ('ISP', scanner.isp!),
+    ];
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
@@ -194,57 +252,106 @@ class _NetworkCard extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+          padding: const EdgeInsets.fromLTRB(20, 16, 12, 18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(
-                    net == null ? Icons.wifi_off_rounded : Icons.wifi_rounded,
-                    color: cs.onPrimaryContainer,
-                  ),
-                  const SizedBox(width: 10),
+                  Icon(icon, color: onC, size: 28),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      scanner.detectingNetwork && net == null
-                          ? tr('Detectez rețeaua…', 'Detecting network…')
-                          : net == null
-                              ? tr('Nicio rețea locală', 'No local network')
-                              : net.interfaceName,
-                      style: tt.titleMedium?.copyWith(
-                          color: cs.onPrimaryContainer,
-                          fontWeight: FontWeight.w600),
-                      overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title,
+                            style: tt.titleLarge?.copyWith(
+                                color: onC, fontWeight: FontWeight.w700),
+                            overflow: TextOverflow.ellipsis),
+                        if (wifi != null && wifi.isWifi)
+                          Text(
+                            net?.interfaceName ?? 'Wi-Fi',
+                            style: tt.bodySmall
+                                ?.copyWith(color: onC.withValues(alpha: 0.7)),
+                          ),
+                      ],
                     ),
                   ),
                   IconButton(
                     tooltip: tr('Redetectează rețeaua', 'Re-detect network'),
                     onPressed: scanning ? null : scanner.refreshNetwork,
-                    icon: Icon(Icons.refresh_rounded,
-                        color: cs.onPrimaryContainer),
+                    icon: Icon(Icons.refresh_rounded, color: onC),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 24,
-                runSpacing: 12,
-                children: [
-                  _Stat(tr('Dispozitive', 'Devices'), '${scanner.devices.length}'),
-                  _Stat(tr('IP-ul tău', 'Your IP'), net?.ip ?? '—'),
-                  _Stat('Gateway', net?.gateway ?? '—'),
-                  _Stat(tr('Interval', 'Range'), scanner.targetDescription),
-                ],
+              if (wifi != null && (wifi.needsLocation || wifi.locationOff)) ...[
+                const SizedBox(height: 8),
+                InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: wifi.needsLocation ? scanner.requestWifiPermission : null,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(children: [
+                      Icon(Icons.location_on_outlined, size: 16, color: onC),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          wifi.needsLocation
+                              ? tr('Atinge pentru a permite Locația — Android o cere ca să arate numele Wi-Fi',
+                                  'Tap to allow Location — Android requires it to show the Wi-Fi name')
+                              : tr('Pornește Locația din telefon ca să vezi numele Wi-Fi',
+                                  'Turn on Location to see the Wi-Fi name'),
+                          style: tt.bodySmall?.copyWith(color: onC),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              ],
+              if (chips.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final c in chips)
+                      Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: onC.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(c.$1, size: 14, color: onC),
+                          const SizedBox(width: 5),
+                          Text(c.$2,
+                              style: tt.labelMedium?.copyWith(color: onC)),
+                        ]),
+                      ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 14),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Wrap(
+                  spacing: 24,
+                  runSpacing: 12,
+                  children: [for (final st in stats) _Stat(st.$1, st.$2)],
+                ),
               ),
               const SizedBox(height: 16),
               if (scanning) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: scanner.progress,
-                    minHeight: 6,
-                    backgroundColor: cs.onPrimaryContainer.withValues(alpha: 0.12),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(
+                      value: scanner.progress,
+                      minHeight: 6,
+                      backgroundColor: onC.withValues(alpha: 0.12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -258,8 +365,7 @@ class _NetworkCard extends StatelessWidget {
                             ? tr('Apasă „Scanează” pentru a descoperi dispozitivele.', 'Tap “Scan” to discover devices.')
                             : scanner.status)
                         : '${scanner.status} · ${timeAgo(scanner.lastScan!)}',
-                style: tt.bodyMedium?.copyWith(
-                    color: cs.onPrimaryContainer.withValues(alpha: 0.85)),
+                style: tt.bodyMedium?.copyWith(color: onC.withValues(alpha: 0.85)),
               ),
             ],
           ),

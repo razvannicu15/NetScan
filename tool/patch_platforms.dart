@@ -21,6 +21,8 @@ void main() {
       'android.permission.ACCESS_NETWORK_STATE',
       'android.permission.ACCESS_WIFI_STATE',
       'android.permission.CHANGE_WIFI_MULTICAST_STATE',
+      'android.permission.ACCESS_FINE_LOCATION',
+      'android.permission.ACCESS_COARSE_LOCATION',
     ];
     final block = perms
         .where((p) => !s.contains(p))
@@ -33,6 +35,14 @@ void main() {
     return s.replaceFirst(
         RegExp(r'android:label="[^"]*"'), 'android:label="NetScan"');
   });
+
+  // Native Wi-Fi channel (SSID, signal, band...).
+  final kt = File('tool/android/MainActivity.kt');
+  final ktDir = Directory('android/app/src/main/kotlin/ro/netscan/netscan');
+  if (kt.existsSync() && ktDir.existsSync()) {
+    kt.copySync('${ktDir.path}/MainActivity.kt');
+    stdout.writeln('copied MainActivity.kt');
+  }
 
   patch('windows/runner/main.cpp', (s) => s
       .replaceAll('L"netscan"', 'L"NetScan"')

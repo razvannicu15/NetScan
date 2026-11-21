@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import '../core/i18n.dart';
@@ -12,6 +13,7 @@ import 'oui_service.dart';
 import 'port_scanner.dart';
 import 'protocols.dart';
 import 'storage.dart';
+import 'wifi_info.dart';
 
 enum ScanPhase { idle, discovering, resolving, done }
 
@@ -22,6 +24,10 @@ class ScanController extends ChangeNotifier {
   final DeviceHistory history = DeviceHistory();
 
   LocalNetwork? network;
+  WifiDetails? wifi;
+  String? publicIp;
+  String? isp;
+  DateTime? _publicFetched;
   bool detectingNetwork = false;
   ScanPhase phase = ScanPhase.idle;
   int progressDone = 0;
@@ -78,9 +84,51 @@ class ScanController extends ChangeNotifier {
   Future<void> refreshNetwork() async {
     detectingNetwork = true;
     notifyListeners();
-    network = await LocalNetworkService.detect();
+    final results = await Future.wait<Object?>([
+      LocalNetworkService.detect(),
+      WifiService.get(),
+    ]);
+    network = results[0] as LocalNetwork?;
+    wifi = results[1] as WifiDetails?;
     detectingNetwork = false;
     notifyListeners();
+    _fetchPublicIp();
+  }
+
+  Future<void> requestWifiPermission() async {
+    await WifiService.requestAgain();
+    wifi = await WifiService.get();
+    notifyListeners();
+  }
+
+  Device? get gateway {
+    for (final d in _devices.values) {
+      if (d.isGateway) return d;
+    }
+    return null;
+  }
+
+  Future<void> _fetchPublicIp() async {
+    final last = _publicFetched;
+    if (last != null && DateTime.now().difference(last).inMinutes < 5) return;
+    _publicFetched = DateTime.now();
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final req = await client.getUrl(Uri.parse('https://ipinfo.io/json'));
+      final res = await req.close().timeout(const Duration(seconds: 6));
+      final body = await res.transform(utf8.decoder).join();
+      final j = jsonDecode(body);
+      if (j is Map) {
+        publicIp = j['ip'] as String?;
+        final org = (j['org'] as String?)?.replaceFirst(RegExp(r'^AS\d+\s+'), '');
+        isp = [org, j['city']].whereType<String>().join(' · ');
+        notifyListeners();
+      }
+    } catch (_) {
+      _publicFetched = null;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   void cancel() {
