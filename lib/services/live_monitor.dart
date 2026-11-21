@@ -171,3 +171,51 @@ class RoamingLog {
     await Storage.instance.writeJson('roaming.json', {'items': []});
   }
 }
+
+enum NetKind { wifi, cellular, ethernet, vpn, none, other }
+
+/// What the device is connected through right now.
+class NetConnection {
+  NetConnection(this.kind, {this.operator, this.ssid});
+  final NetKind kind;
+  final String? operator;
+  final String? ssid;
+
+  static const _ch = MethodChannel('netscan/wifi');
+
+  static Future<NetConnection> current() async {
+    try {
+      if (Platform.isAndroid) {
+        final m = await _ch.invokeMapMethod<String, dynamic>('connection');
+        final kind = switch (m?['type']) {
+          'wifi' => NetKind.wifi,
+          'cellular' => NetKind.cellular,
+          'ethernet' => NetKind.ethernet,
+          'vpn' => NetKind.vpn,
+          'none' => NetKind.none,
+          _ => NetKind.other,
+        };
+        final op = (m?['operator'] as String?)?.trim();
+        String? ssid;
+        if (kind == NetKind.wifi) ssid = (await LiveWifi.read())?.ssid;
+        return NetConnection(kind, operator: (op == null || op.isEmpty) ? null : op, ssid: ssid);
+      }
+      if (Platform.isWindows) {
+        final w = await WifiService.get();
+        if (w != null && w.ssid != null) return NetConnection(NetKind.wifi, ssid: w.ssid);
+        return NetConnection(NetKind.ethernet);
+      }
+    } catch (_) {}
+    return NetConnection(NetKind.other);
+  }
+
+  /// Short human label, e.g. "norAz_5G", "Date mobile · Orange RO", "Ethernet".
+  String label(String Function(String ro, String en) tr) => switch (kind) {
+        NetKind.wifi => ssid ?? 'Wi-Fi',
+        NetKind.cellular => [tr('Date mobile', 'Mobile data'), if (operator != null) operator!].join(' · '),
+        NetKind.ethernet => 'Ethernet',
+        NetKind.vpn => 'VPN',
+        NetKind.none => tr('Fără conexiune', 'Offline'),
+        NetKind.other => tr('Rețea', 'Network'),
+      };
+}

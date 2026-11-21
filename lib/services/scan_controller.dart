@@ -13,6 +13,7 @@ import 'oui_service.dart';
 import 'port_scanner.dart';
 import 'protocols.dart';
 import 'storage.dart';
+import 'live_monitor.dart';
 import 'wifi_info.dart';
 
 enum ScanPhase { idle, discovering, resolving, done }
@@ -25,6 +26,12 @@ class ScanController extends ChangeNotifier {
 
   LocalNetwork? network;
   WifiDetails? wifi;
+  NetConnection? connection;
+
+  /// On mobile data / offline: there is no local network to scan.
+  bool get noLan =>
+      connection != null &&
+      (connection!.kind == NetKind.cellular || connection!.kind == NetKind.none);
   String? publicIp;
   String? isp;
   DateTime? _publicFetched;
@@ -87,9 +94,12 @@ class ScanController extends ChangeNotifier {
     final results = await Future.wait<Object?>([
       LocalNetworkService.detect(),
       WifiService.get(),
+      NetConnection.current(),
     ]);
     network = results[0] as LocalNetwork?;
     wifi = results[1] as WifiDetails?;
+    connection = results[2] as NetConnection?;
+    if (noLan) wifi = null;
     detectingNetwork = false;
     notifyListeners();
     _fetchPublicIp();
@@ -161,8 +171,11 @@ class ScanController extends ChangeNotifier {
     if (scanning) return;
     await refreshNetwork();
     final net = network;
-    if (net == null) {
-      status = tr('Nu ești conectat la nicio rețea locală.', 'You are not connected to a local network.');
+    if (net == null || noLan) {
+      status = noLan
+          ? tr('Ești pe date mobile. Conectează-te la Wi-Fi ca să scanezi rețeaua.',
+              'You are on mobile data. Connect to Wi-Fi to scan the network.')
+          : tr('Nu ești conectat la nicio rețea locală.', 'You are not connected to a local network.');
       notifyListeners();
       return;
     }

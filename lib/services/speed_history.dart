@@ -8,6 +8,7 @@ class SpeedResult {
     this.ping,
     this.jitter,
     this.network,
+    this.kind,
   });
 
   final DateTime at;
@@ -16,6 +17,7 @@ class SpeedResult {
   final double? ping;
   final double? jitter;
   final String? network;
+  final String? kind; // wifi / cellular / ethernet …
 
   Map<String, dynamic> toJson() => {
         'at': at.toIso8601String(),
@@ -24,6 +26,7 @@ class SpeedResult {
         'ping': ping,
         'jitter': jitter,
         'network': network,
+        'kind': kind,
       };
 
   static double? _d(Object? v) => v is num ? v.toDouble() : null;
@@ -39,6 +42,7 @@ class SpeedResult {
       ping: _d(j['ping']),
       jitter: _d(j['jitter']),
       network: j['network'] as String?,
+      kind: j['kind'] as String?,
     );
   }
 }

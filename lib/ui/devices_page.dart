@@ -1,4 +1,5 @@
 import '../core/i18n.dart';
+import '../services/live_monitor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -435,7 +436,12 @@ class _NetworkCardState extends State<_NetworkCard> {
 
     final String title;
     final IconData icon;
-    if (net == null) {
+    if (scanner.noLan) {
+      title = scanner.connection!.label(tr);
+      icon = scanner.connection!.kind == NetKind.cellular
+          ? Icons.signal_cellular_alt
+          : Icons.cloud_off;
+    } else if (net == null) {
       title = scanner.detectingNetwork
           ? tr('Detectez rețeaua…', 'Detecting network…')
           : tr('Nicio rețea locală', 'No local network');
@@ -471,18 +477,20 @@ class _NetworkCardState extends State<_NetworkCard> {
     ];
 
     final gw = scanner.gateway;
-    final mainStats = <(String, String)>[
+    final mainStats = scanner.noLan ? <(String, String)>[] : <(String, String)>[
       (tr('Dispozitive', 'Devices'), '${scanner.devices.length}'),
       (tr('IP-ul tău', 'Your IP'), net?.ip ?? '—'),
       if (scanner.unknownDevices.isNotEmpty)
         (tr('Necunoscute', 'Unknown'), '${scanner.unknownDevices.length}'),
     ];
-    final subtitle = (wifi != null && wifi.signalPercent != null)
+    final subtitle = scanner.noLan
+        ? tr('Nu ești pe o rețea locală', 'Not on a local network')
+        : (wifi != null && wifi.signalPercent != null)
         ? '${tr('Semnal', 'Signal')} ${wifi.signalPercent}% · ${wifi.signalLabel}${wifi.band != null ? ' · ${wifi.band}' : ''}'
         : (wifi != null && wifi.isWifi)
             ? (net?.interfaceName ?? 'Wi-Fi')
             : null;
-    final stats = <(String, String)>[
+    final stats = scanner.noLan ? <(String, String)>[] : <(String, String)>[
       ('Gateway', net?.gateway ?? '—'),
       (tr('Interval', 'Range'), scanner.targetDescription),
       if (gw?.vendor != null) ('Router', gw!.vendor!),

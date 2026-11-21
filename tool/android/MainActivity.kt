@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.telephony.TelephonyManager
 import android.media.ToneGenerator
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -27,6 +30,13 @@ class MainActivity : FlutterActivity() {
                     "live" -> {
                         try {
                             result.success(live())
+                        } catch (e: Exception) {
+                            result.error("ERR", e.message, null)
+                        }
+                    }
+                    "connection" -> {
+                        try {
+                            result.success(connection())
                         } catch (e: Exception) {
                             result.error("ERR", e.message, null)
                         }
@@ -186,5 +196,41 @@ class MainActivity : FlutterActivity() {
         toneGen?.release()
         toneGen = null
         super.onDestroy()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun connection(): HashMap<String, Any?> {
+        val cm = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        var type = "none"
+        if (Build.VERSION.SDK_INT >= 23) {
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+            if (caps != null) {
+                type = when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "vpn"
+                    else -> "other"
+                }
+            }
+        } else {
+            val ni = cm.activeNetworkInfo
+            if (ni != null && ni.isConnected) {
+                type = when (ni.type) {
+                    ConnectivityManager.TYPE_WIFI -> "wifi"
+                    ConnectivityManager.TYPE_ETHERNET -> "ethernet"
+                    ConnectivityManager.TYPE_MOBILE -> "cellular"
+                    else -> "other"
+                }
+            }
+        }
+        val m = HashMap<String, Any?>()
+        m["type"] = type
+        try {
+            val tm = applicationContext.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            m["operator"] = tm.networkOperatorName
+        } catch (e: Exception) {
+        }
+        return m
     }
 }

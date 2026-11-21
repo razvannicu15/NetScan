@@ -2,8 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
-import '../app_state.dart';
 import '../core/i18n.dart';
+import '../services/live_monitor.dart';
 import '../services/speed_history.dart';
 import '../services/speed_test.dart';
 import 'widgets.dart';
@@ -23,15 +23,29 @@ class _SpeedTestPageState extends State<SpeedTestPage> {
       _test.phase == SpeedPhase.download ||
       _test.phase == SpeedPhase.upload;
 
+  NetConnection? _conn;
+
   @override
   void initState() {
     super.initState();
     SpeedHistory.instance.load().then((_) {
       if (mounted) setState(() {});
     });
+    NetConnection.current().then((c) {
+      if (mounted) setState(() => _conn = c);
+    });
   }
 
+  IconData _kindIcon(String? kind) => switch (kind) {
+        'cellular' => Icons.signal_cellular_alt,
+        'ethernet' => Icons.settings_ethernet,
+        'vpn' => Icons.vpn_lock,
+        _ => Icons.wifi,
+      };
+
   Future<void> _start() async {
+    final conn = await NetConnection.current();
+    if (mounted) setState(() => _conn = conn);
     await _test.run(() {
       if (mounted) setState(() {});
     });
@@ -42,7 +56,8 @@ class _SpeedTestPageState extends State<SpeedTestPage> {
         up: _test.uploadMbps,
         ping: _test.pingMs,
         jitter: _test.jitterMs,
-        network: scanner.wifi?.ssid ?? scanner.network?.interfaceName,
+        network: conn.label(tr),
+        kind: conn.kind.name,
       ));
       if (mounted) setState(() {});
     }
@@ -125,11 +140,17 @@ class _SpeedTestPageState extends State<SpeedTestPage> {
                     children: [
                       CellText(_date(r.at)),
                       if (r.network != null)
-                        Text(r.network!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(color: cs.onSurfaceVariant)),
+                        Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(_kindIcon(r.kind), size: 12, color: cs.onSurfaceVariant),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(r.network!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(color: cs.onSurfaceVariant)),
+                          ),
+                        ]),
                     ],
                   ),
                   CellText(_fmt(r.down),
@@ -233,6 +254,23 @@ class _SpeedTestPageState extends State<SpeedTestPage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
+            if (_conn != null)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: cs.secondaryContainer,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(_kindIcon(_conn!.kind.name), size: 16, color: cs.onSecondaryContainer),
+                    const SizedBox(width: 6),
+                    Text(_conn!.label(tr),
+                        style: tt.labelLarge?.copyWith(color: cs.onSecondaryContainer)),
+                  ]),
+                ),
+              ),
+            const SizedBox(height: 8),
             LayoutBuilder(builder: (context, box) {
               final w = min(box.maxWidth, 420.0);
               final r = w * 0.40;
