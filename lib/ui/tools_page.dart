@@ -19,101 +19,166 @@ import 'traceroute_page.dart';
 import 'wifi_analyzer_page.dart';
 import 'widgets.dart';
 
+class _Tool {
+  const _Tool(this.icon, this.title, this.desc, this.page);
+  final IconData icon;
+  final String title;
+  final String desc;
+  final Widget Function() page;
+}
+
+class _Group {
+  const _Group(this.icon, this.title, this.desc, this.tools);
+  final IconData icon;
+  final String title;
+  final String desc;
+  final List<_Tool> tools;
+}
+
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
 
+  List<_Group> get _groups => [
+        _Group(
+          Icons.wifi,
+          'Wi-Fi',
+          tr('Cât de bun e semnalul și unde', 'How good your signal is, and where'),
+          [
+            _Tool(Icons.monitor_heart_outlined, tr('Conexiunea mea', 'My connection'),
+                tr('Semnal și latență live, diagnostic', 'Live signal & latency, diagnosis'),
+                () => const MyConnectionPage()),
+            _Tool(Icons.wifi_find, tr('Analizor Wi-Fi', 'Wi-Fi analyzer'),
+                tr('Rețelele vecine și canalul cel mai liber', 'Nearby networks and the freest channel'),
+                () => const WifiAnalyzerPage()),
+            _Tool(Icons.explore_outlined, tr('Caută semnal', 'Signal finder'),
+                tr('Plimbă-te prin casă, bipul te ghidează', 'Walk around, beeps guide you'),
+                () => const SignalFinderPage()),
+          ],
+        ),
+        _Group(
+          Icons.public,
+          'Internet',
+          tr('Viteza și calitatea conexiunii spre internet', 'Speed and quality of your internet'),
+          [
+            _Tool(Icons.speed, 'Speed test',
+                tr('Download, upload și ping, cu istoric', 'Download, upload and ping, with history'),
+                () => const SpeedTestPage()),
+            _Tool(Icons.network_ping, 'Ping',
+                tr('Răspunde o adresă? În cât timp?', 'Does an address answer? How fast?'),
+                () => const PingPage()),
+            _Tool(Icons.route_outlined, 'Traceroute',
+                tr('Pe unde trec datele până la un site', 'The path data takes to a site'),
+                () => const TraceroutePage()),
+            _Tool(Icons.dns_outlined, 'DNS lookup',
+                tr('Află IP-ul unui site sau numele unui IP', 'Find a site\'s IP or an IP\'s name'),
+                () => const DnsPage()),
+            _Tool(Icons.info_outline, tr('Informații rețea', 'Network info'),
+                tr('IP local, gateway, IP public, furnizor', 'Local IP, gateway, public IP, ISP'),
+                () => const NetInfoPage()),
+          ],
+        ),
+        _Group(
+          Icons.shield_outlined,
+          tr('Rețea și securitate', 'Network & security'),
+          tr('Ce dispozitive ai și cât de expuse sunt', 'Your devices and how exposed they are'),
+          [
+            _Tool(Icons.gpp_maybe_outlined, tr('Securitate rețea', 'Network security'),
+                tr('Riscuri găsite la scanare și ce să faci', 'Risks found by the scan and what to do'),
+                () => const SecurityPage()),
+            _Tool(Icons.videocam_outlined, tr('Camere ascunse', 'Hidden cameras'),
+                tr('Camere video conectate la rețea', 'Video cameras on your network'),
+                () => const CamerasPage()),
+            _Tool(Icons.travel_explore, tr('Scanare porturi', 'Port scan'),
+                tr('Ce servicii are deschise un dispozitiv', 'Which services a device exposes'),
+                () => const _PortHostPage()),
+            _Tool(Icons.power_settings_new, 'Wake-on-LAN',
+                tr('Pornește un PC de la distanță', 'Turn on a PC remotely'),
+                () => const WolPage()),
+          ],
+        ),
+      ];
+
   @override
   Widget build(BuildContext context) {
-    final tools = <(IconData, String, String, Widget Function())>[
-      (Icons.monitor_heart_outlined, tr('Conexiunea mea', 'My connection'),
-          tr('Semnal și latență live, roaming', 'Live signal & latency, roaming'),
-          () => const MyConnectionPage()),
-      (Icons.explore_outlined, tr('Caută semnal', 'Signal finder'),
-          tr('Găsește locul cu semnal bun', 'Find the best signal spot'),
-          () => const SignalFinderPage()),
-      (Icons.shield_outlined, tr('Securitate rețea', 'Network security'),
-          tr('Probleme și riscuri găsite la scanare', 'Issues and risks found by the scan'),
-          () => const SecurityPage()),
-      (Icons.videocam_outlined, tr('Camere ascunse', 'Hidden cameras'),
-          tr('Camere video din rețeaua ta', 'Video cameras on your network'),
-          () => const CamerasPage()),
-      (Icons.wifi_find, tr('Analizor Wi-Fi', 'Wi-Fi analyzer'),
-          tr('Rețele din jur, canale, semnal', 'Nearby networks, channels, signal'),
-          () => const WifiAnalyzerPage()),
-      (Icons.speed, 'Speed test',
-          tr('Viteză internet: download, upload, ping', 'Internet speed: download, upload, ping'),
-          () => const SpeedTestPage()),
-      (Icons.route_outlined, 'Traceroute',
-          tr('Drumul pachetelor până la o gazdă', 'Path packets take to a host'),
-          () => const TraceroutePage()),
-      (Icons.network_ping, 'Ping', tr('Latență și pierderi de pachete', 'Latency and packet loss'),
-          () => const PingPage()),
-      (Icons.travel_explore, tr('Scanare porturi', 'Port scan'), tr('Orice IP sau hostname', 'Any IP or hostname'),
-          () => const _PortHostPage()),
-      (Icons.power_settings_new, 'Wake-on-LAN', tr('Pornește un PC prin rețea', 'Wake a PC over the network'),
-          () => const WolPage()),
-      (Icons.dns_outlined, 'DNS lookup', tr('Hostname ↔ IP', 'Hostname ↔ IP'),
-          () => const DnsPage()),
-      (Icons.info_outline, tr('Informații rețea', 'Network info'), tr('IP local, gateway, IP public', 'Local IP, gateway, public IP'),
-          () => const NetInfoPage()),
-    ];
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return Scaffold(
       body: CustomScrollView(
         slivers: [
           SliverAppBar.medium(title: Text(tr('Instrumente', 'Tools'))),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-            sliver: SliverGrid.builder(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 320,
-                mainAxisExtent: 140,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-              ),
-              itemCount: tools.length,
-              itemBuilder: (context, i) {
-                final t = tools[i];
-                final cs = Theme.of(context).colorScheme;
-                return Card(
-                  elevation: 0,
-                  color: cs.surfaceContainerLow,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20)),
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute<void>(builder: (_) => t.$4())),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: cs.primaryContainer,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Icon(t.$1, color: cs.onPrimaryContainer),
+          SliverList.list(children: [
+            for (final g in _groups)
+              MaxWidth(
+                width: 760,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                        child: Row(children: [
+                          Icon(g.icon, size: 20, color: cs.primary),
+                          const SizedBox(width: 8),
+                          Text(g.title,
+                              style: tt.titleMedium?.copyWith(
+                                  color: cs.primary, fontWeight: FontWeight.w700)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(g.desc,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                           ),
-                          const Spacer(),
-                          Text(t.$2,
-                              style: Theme.of(context).textTheme.titleMedium),
-                          Text(t.$3,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: cs.onSurfaceVariant)),
+                        ]),
+                      ),
+                      TableCard(
+                        margin: EdgeInsets.zero,
+                        children: [
+                          for (final t in g.tools)
+                            InkWell(
+                              onTap: () => Navigator.push(context,
+                                  MaterialPageRoute<void>(builder: (_) => t.page())),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                child: Row(children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: cs.primaryContainer,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(t.icon, size: 22, color: cs.onPrimaryContainer),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(t.title,
+                                            style: tt.titleSmall
+                                                ?.copyWith(fontWeight: FontWeight.w600)),
+                                        Text(t.desc,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: tt.bodySmall
+                                                ?.copyWith(color: cs.onSurfaceVariant)),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+                                ]),
+                              ),
+                            ),
                         ],
                       ),
-                    ),
+                    ],
                   ),
-                );
-              },
-            ),
-          ),
+                ),
+              ),
+            const SizedBox(height: 24),
+          ]),
         ],
       ),
     );
