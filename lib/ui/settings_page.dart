@@ -41,7 +41,6 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
     return ListenableBuilder(
       listenable: appSettings,
       builder: (context, _) => Scaffold(

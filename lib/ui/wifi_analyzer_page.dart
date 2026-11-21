@@ -300,13 +300,13 @@ class _WifiAnalyzerPageState extends State<WifiAnalyzerPage> {
             TableCard(margin: EdgeInsets.zero, children: [
               if (ownHere)
                 InfoRow(Icons.wifi, tr('Rețeaua ta', 'Your network'),
-                    '${_name(own!)} · ${tr('canal', 'channel')} ${own.channel}',
+                    '${_name(own)} · ${tr('canal', 'channel')} ${own.channel}',
                     copy: false),
               if (rec != null)
                 InfoRow(
                   Icons.recommend_outlined,
                   tr('Canal recomandat', 'Recommended channel'),
-                  ownHere && (own!.channel == rec || own.center == rec)
+                  ownHere && (own.channel == rec || own.center == rec)
                       ? '$rec · ${tr('ești deja pe cel mai bun', 'you are already on the best one')}'
                       : '$rec · ${tr('cel mai puțin aglomerat', 'least crowded')}',
                   copy: false,

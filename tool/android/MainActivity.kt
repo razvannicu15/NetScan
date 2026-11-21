@@ -54,6 +54,15 @@ class MainActivity : FlutterActivity() {
                             result.error("ERR", e.message, null)
                         }
                     }
+                    "widget" -> {
+                        val p = getSharedPreferences(NetScanWidget.PREFS, Context.MODE_PRIVATE).edit()
+                        for (k in listOf("ssid", "devices", "time", "noWifi")) {
+                            call.argument<String>(k)?.let { p.putString(k, it) }
+                        }
+                        p.apply()
+                        NetScanWidget.updateAll(applicationContext)
+                        result.success(null)
+                    }
                     "tone" -> {
                         tone(call.argument<Int>("level") ?: 5)
                         result.success(null)

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="netscan_widget_bg">#F2F6FC</color>
+    <color name="netscan_widget_text">#1A1C1E</color>
+    <color name="netscan_widget_sub">#5F6368</color>
+</resources>

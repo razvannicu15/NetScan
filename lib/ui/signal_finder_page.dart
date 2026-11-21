@@ -177,7 +177,7 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text('$_label · ${_percent}%',
+                                    Text('$_label · $_percent%',
                                         style: tt.titleMedium?.copyWith(color: c, fontWeight: FontWeight.w600)),
                                     const SizedBox(width: 6),
                                     Icon(

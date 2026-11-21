@@ -103,6 +103,29 @@ class ScanController extends ChangeNotifier {
     detectingNetwork = false;
     notifyListeners();
     _fetchPublicIp();
+    _pushWidget();
+  }
+
+  void _pushWidget() {
+    String two(int v) => v.toString().padLeft(2, '0');
+    final t = lastScan;
+    final n = _devices.length;
+    final unk = unknownDevices.length;
+    HomeWidget.update(
+      ssid: noLan ? connection?.label(tr) : wifi?.ssid,
+      devices: noLan
+          ? tr('Nu ești pe Wi-Fi', 'Not on Wi-Fi')
+          : n == 0
+              ? tr('Atinge pentru a scana rețeaua', 'Tap to scan your network')
+              : [
+                  tr('$n dispozitive', '$n devices'),
+                  if (unk > 0) tr('$unk necunoscute', '$unk unknown'),
+                ].join(' · '),
+      time: t == null || noLan
+          ? ''
+          : tr('Scanat la ${two(t.hour)}:${two(t.minute)}', 'Scanned at ${two(t.hour)}:${two(t.minute)}'),
+      noWifi: tr('Wi-Fi oprit', 'Wi-Fi off'),
+    );
   }
 
   Future<void> requestWifiPermission() async {
@@ -188,7 +211,7 @@ class ScanController extends ChangeNotifier {
     phase = ScanPhase.discovering;
     progressDone = 0;
     progressTotal = targets.length;
-    status = tr('Caut dispozitive în ${targetDescription}…', 'Looking for devices in ${targetDescription}…');
+    status = tr('Caut dispozitive în $targetDescription…', 'Looking for devices in $targetDescription…');
     notifyListeners();
 
     // Self + gateway are always shown.
@@ -407,6 +430,7 @@ class ScanController extends ChangeNotifier {
     _notifyTimer?.cancel();
     _notifyTimer = null;
     notifyListeners();
+    _pushWidget();
   }
 
   Future<void> rename(Device d, String? name) async {
@@ -435,6 +459,7 @@ class ScanController extends ChangeNotifier {
   Future<void> setKnown(Device d, bool known) async {
     d.known = known;
     if (known) d.isNew = false;
+    _pushWidget();
     final net = network;
     if (net != null) {
       history.forNetwork(net.id)[d.storeKey] = d;

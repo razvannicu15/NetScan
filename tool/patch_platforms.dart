@@ -41,8 +41,35 @@ void main() {
   final ktDir = Directory('android/app/src/main/kotlin/ro/netscan/netscan');
   if (kt.existsSync() && ktDir.existsSync()) {
     kt.copySync('${ktDir.path}/MainActivity.kt');
-    stdout.writeln('copied MainActivity.kt');
+    File('tool/android/NetScanWidget.kt').copySync('${ktDir.path}/NetScanWidget.kt');
+    stdout.writeln('copied MainActivity.kt + NetScanWidget.kt');
   }
+
+  // Home-screen widget resources.
+  final resSrc = Directory('tool/android/res');
+  final resDst = Directory('android/app/src/main/res');
+  if (resSrc.existsSync() && resDst.existsSync()) {
+    for (final f in resSrc.listSync(recursive: true).whereType<File>()) {
+      final rel = f.path.substring(resSrc.path.length + 1);
+      final out = File('${resDst.path}/$rel');
+      out.parent.createSync(recursive: true);
+      f.copySync(out.path);
+    }
+    stdout.writeln('copied widget resources');
+  }
+  patch('android/app/src/main/AndroidManifest.xml', (s) {
+    if (s.contains('.NetScanWidget')) return s;
+    const receiver = '''
+        <receiver android:name=".NetScanWidget" android:exported="false" android:label="NetScan">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/netscan_widget_info" />
+        </receiver>
+    ''';
+    return s.replaceFirst('</application>', '$receiver</application>');
+  });
 
   patch('windows/runner/main.cpp', (s) => s
       .replaceAll('L"netscan"', 'L"NetScan"')
