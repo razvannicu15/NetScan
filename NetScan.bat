@@ -7,12 +7,12 @@ set "REPO_URL=https://github.com/razvannicu15/NetScan.git"
 set "GH_URL=https://github.com/razvannicu15/NetScan"
 
 rem Daca .bat-ul sta in folderul proiectului il folosim pe acela,
-rem altfel lucram in %USERPROFILE%\NetScan (ex. cand e pus pe Desktop).
+rem altfel lucram in D:\Apps\NetScan (ex. cand e pus pe Desktop).
 set "SCRIPT_DIR=%~dp0"
 if exist "%SCRIPT_DIR%pubspec.yaml" (
   set "APP_DIR=%SCRIPT_DIR:~0,-1%"
 ) else (
-  set "APP_DIR=%USERPROFILE%\NetScan"
+  set "APP_DIR=D:\Apps\NetScan"
 )
 set "OUT_DIR=%APP_DIR%\dist"
 
@@ -55,6 +55,7 @@ call :need_git || goto pause_menu
 if exist "%APP_DIR%\.git" goto do_pull
 echo.
 echo   Clonez %REPO_URL% in %APP_DIR% ...
+if not exist "D:\Apps" mkdir "D:\Apps"
 git clone "%REPO_URL%" "%APP_DIR%"
 if errorlevel 1 goto fail
 goto ok

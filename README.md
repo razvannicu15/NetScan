@@ -27,7 +27,9 @@ Build-ul se face automat în **GitHub Actions** la fiecare push pe `main`:
 
 Le găsești în tab-ul **Actions → ultimul run → Artifacts**. La un tag `v*` (ex. `v1.0.0`) se creează automat și un **Release** cu ambele fișiere.
 
-Local (cu Flutter instalat):
+Pe PC: `git clone https://github.com/razvannicu15/NetScan.git D:\Apps\NetScan`, apoi rulează `NetScan.bat` (meniu: update, build EXE/APK local, release în cloud).
+
+Manual (cu Flutter instalat):
 
 ```bash
 flutter create --platforms=android,windows --org ro.netscan --project-name netscan .
