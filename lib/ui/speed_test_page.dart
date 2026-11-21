@@ -2,7 +2,9 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../core/i18n.dart';
+import '../services/speed_history.dart';
 import '../services/speed_test.dart';
 import 'widgets.dart';
 
@@ -21,10 +23,137 @@ class _SpeedTestPageState extends State<SpeedTestPage> {
       _test.phase == SpeedPhase.download ||
       _test.phase == SpeedPhase.upload;
 
-  void _start() {
-    _test.run(() {
+  @override
+  void initState() {
+    super.initState();
+    SpeedHistory.instance.load().then((_) {
       if (mounted) setState(() {});
     });
+  }
+
+  Future<void> _start() async {
+    await _test.run(() {
+      if (mounted) setState(() {});
+    });
+    if (_test.phase == SpeedPhase.done) {
+      await SpeedHistory.instance.add(SpeedResult(
+        at: DateTime.now(),
+        down: _test.downloadMbps,
+        up: _test.uploadMbps,
+        ping: _test.pingMs,
+        jitter: _test.jitterMs,
+        network: scanner.wifi?.ssid ?? scanner.network?.interfaceName,
+      ));
+      if (mounted) setState(() {});
+    }
+  }
+
+  String _date(DateTime t) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(t.day)}.${two(t.month)} ${two(t.hour)}:${two(t.minute)}';
+  }
+
+  Future<void> _clearHistory() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr('Ștergi istoricul?', 'Clear history?')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(tr('Anulează', 'Cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(tr('Șterge', 'Clear'))),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await SpeedHistory.instance.clear();
+      if (mounted) setState(() {});
+    }
+  }
+
+  Widget _history(BuildContext context) {
+    final items = SpeedHistory.instance.items;
+    if (items.isEmpty) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    final cols = [
+      TableCol(tr('Data', 'Date'), flex: 4),
+      const TableCol('↓ Mbps', flex: 3, align: TextAlign.right),
+      const TableCol('↑ Mbps', flex: 3, align: TextAlign.right),
+      const TableCol('Ping', flex: 2, align: TextAlign.right),
+    ];
+    final best = items
+        .map((r) => r.down ?? 0.0)
+        .fold<double>(0, (a, b) => b > a ? b : a);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${tr('Istoric', 'History')} · ${items.length}',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: cs.primary, fontWeight: FontWeight.w600),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: _clearHistory,
+              icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+              label: Text(tr('Șterge', 'Clear')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        TableCard(
+          margin: EdgeInsets.zero,
+          header: cols,
+          children: [
+            for (final r in items)
+              TableDataRow(
+                cols: cols,
+                onLongPress: () async {
+                  await SpeedHistory.instance.remove(r);
+                  if (mounted) setState(() {});
+                },
+                cells: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CellText(_date(r.at)),
+                      if (r.network != null)
+                        Text(r.network!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: cs.onSurfaceVariant)),
+                    ],
+                  ),
+                  CellText(_fmt(r.down),
+                      bold: true,
+                      color: (r.down != null && r.down == best) ? cs.primary : null),
+                  CellText(_fmt(r.up), bold: true),
+                  CellText(r.ping == null ? '—' : '${r.ping!.round()} ms',
+                      muted: true),
+                ],
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          tr('Ține apăsat pe un rând ca să-l ștergi. Datele rămân doar pe acest dispozitiv.',
+              'Long-press a row to delete it. Data stays on this device only.'),
+          textAlign: TextAlign.center,
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: cs.onSurfaceVariant),
+        ),
+      ],
+    );
   }
 
   @override
@@ -209,6 +338,7 @@ class _SpeedTestPageState extends State<SpeedTestPage> {
               textAlign: TextAlign.center,
               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
+            _history(context),
           ],
         ),
       ),

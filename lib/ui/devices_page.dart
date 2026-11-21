@@ -65,7 +65,8 @@ class _DevicesPageState extends State<DevicesPage> {
         final online = _filter(scanner.devices);
         final offline = _filter(scanner.offlineDevices);
         return Scaffold(
-          floatingActionButton: _ScanFab(),
+          floatingActionButton: _ScanFab(
+              scanning: scanner.scanning, progress: scanner.progress),
           body: RefreshIndicator(
             onRefresh: () => scanner.scan(),
             child: CustomScrollView(
@@ -132,7 +133,10 @@ class _DevicesPageState extends State<DevicesPage> {
                 SliverList.builder(
                   itemCount: online.length,
                   itemBuilder: (_, i) => MaxWidth(
-                    child: _DeviceTile(device: online[i], onTap: _open),
+                    child: _DeviceTile(
+                        device: online[i],
+                        onTap: _open,
+                        enabled: !scanner.scanning),
                   ),
                 ),
                 if (offline.isNotEmpty && !scanner.scanning)
@@ -165,14 +169,104 @@ class _DevicesPageState extends State<DevicesPage> {
   }
 }
 
-class _ScanFab extends StatelessWidget {
+class _ScanFab extends StatefulWidget {
+  const _ScanFab({required this.scanning, required this.progress});
+  final bool scanning;
+  final double? progress;
+
+  @override
+  State<_ScanFab> createState() => _ScanFabState();
+}
+
+class _ScanFabState extends State<_ScanFab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1600));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.scanning) _c.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ScanFab old) {
+    super.didUpdateWidget(old);
+    if (widget.scanning && !_c.isAnimating) {
+      _c.repeat();
+    } else if (!widget.scanning && _c.isAnimating) {
+      _c
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final scanning = scanner.scanning;
-    return FloatingActionButton.extended(
-      onPressed: scanning ? scanner.cancel : scanner.scan,
-      icon: Icon(scanning ? Icons.stop_rounded : Icons.radar),
-      label: Text(scanning ? tr('Oprește', 'Stop') : tr('Scanează', 'Scan')),
+    final cs = Theme.of(context).colorScheme;
+    final scanning = widget.scanning;
+    final bg = scanning ? cs.tertiary : cs.primary;
+    final fg = scanning ? cs.onTertiary : cs.onPrimary;
+    final p = widget.progress;
+    final label = scanning
+        ? '${tr('Oprește', 'Stop')}${p == null ? '' : ' · ${(p * 100).round()}%'}'
+        : tr('Scanează', 'Scan');
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(22));
+
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        // 0 → 1 → 0 pulse while scanning
+        final pulse = scanning ? 1 - (2 * _c.value - 1).abs() : 0.0;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: bg.withValues(alpha: scanning ? 0.25 + 0.30 * pulse : 0.35),
+                blurRadius: scanning ? 14 + 16 * pulse : 16,
+                spreadRadius: scanning ? 1 + 6 * pulse : 1,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: child,
+        );
+      },
+      child: FloatingActionButton.extended(
+        onPressed: scanning ? scanner.cancel : scanner.scan,
+        backgroundColor: bg,
+        foregroundColor: fg,
+        elevation: 0,
+        focusElevation: 0,
+        hoverElevation: 2,
+        highlightElevation: 0,
+        shape: shape,
+        extendedPadding: const EdgeInsets.symmetric(horizontal: 28),
+        icon: RotationTransition(
+          turns: _c,
+          child: const Icon(Icons.radar, size: 28),
+        ),
+        label: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: Text(
+            label,
+            key: ValueKey(scanning),
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -402,9 +496,11 @@ class _Stat extends StatelessWidget {
 }
 
 class _DeviceTile extends StatelessWidget {
-  const _DeviceTile({required this.device, required this.onTap});
+  const _DeviceTile(
+      {required this.device, required this.onTap, this.enabled = true});
   final Device device;
   final void Function(Device) onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -417,13 +513,16 @@ class _DeviceTile extends StatelessWidget {
     ].join(' · ');
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-      child: Card(
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 250),
+        opacity: enabled ? 1 : 0.45,
+        child: Card(
         elevation: 0,
         color: cs.surfaceContainerLow,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => onTap(d),
+          onTap: enabled ? () => onTap(d) : null,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
             child: Row(
@@ -482,18 +581,29 @@ class _DeviceTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (d.latencyMs != null)
+                if (enabled && d.latencyMs != null)
                   Padding(
                     padding: const EdgeInsets.only(left: 8),
                     child: Text('${d.latencyMs!.round()} ms',
                         style: tt.labelMedium
                             ?.copyWith(color: cs.onSurfaceVariant)),
                   ),
-                Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+                if (enabled)
+                  Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant)
+                else
+                  const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
               ],
             ),
           ),
         ),
+      ),
       ),
     );
   }
