@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.wifi.WifiManager
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
@@ -22,6 +24,17 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "requestLocation" -> requestLocation(result)
                     "locationEnabled" -> result.success(locationEnabled())
+                    "live" -> {
+                        try {
+                            result.success(live())
+                        } catch (e: Exception) {
+                            result.error("ERR", e.message, null)
+                        }
+                    }
+                    "tone" -> {
+                        tone(call.argument<Int>("level") ?: 5)
+                        result.success(null)
+                    }
                     "scan" -> {
                         try {
                             result.success(scanResults(call.argument<Boolean>("trigger") ?: false))
@@ -137,5 +150,41 @@ class MainActivity : FlutterActivity() {
             out.add(m)
         }
         return out
+    }
+
+    @Suppress("DEPRECATION")
+    private fun live(): HashMap<String, Any?> {
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val i = wm.connectionInfo
+        val m = HashMap<String, Any?>()
+        var ssid = i?.ssid?.trim('"')
+        if (ssid == "<unknown ssid>" || ssid.isNullOrBlank()) ssid = null
+        m["ssid"] = ssid
+        m["bssid"] = i?.bssid?.takeIf { it != "02:00:00:00:00:00" }
+        m["rssi"] = i?.rssi
+        m["frequency"] = i?.frequency
+        m["linkSpeed"] = i?.linkSpeed
+        return m
+    }
+
+    private var toneGen: ToneGenerator? = null
+    private val tones = intArrayOf(
+        ToneGenerator.TONE_DTMF_1, ToneGenerator.TONE_DTMF_2, ToneGenerator.TONE_DTMF_3,
+        ToneGenerator.TONE_DTMF_4, ToneGenerator.TONE_DTMF_5, ToneGenerator.TONE_DTMF_6,
+        ToneGenerator.TONE_DTMF_7, ToneGenerator.TONE_DTMF_8, ToneGenerator.TONE_DTMF_9
+    )
+
+    private fun tone(level: Int) {
+        try {
+            if (toneGen == null) toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 60)
+            toneGen?.startTone(tones[(level - 1).coerceIn(0, 8)], 80)
+        } catch (e: Exception) {
+        }
+    }
+
+    override fun onDestroy() {
+        toneGen?.release()
+        toneGen = null
+        super.onDestroy()
     }
 }

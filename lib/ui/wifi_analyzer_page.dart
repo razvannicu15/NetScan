@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../core/i18n.dart';
+import '../services/live_monitor.dart';
 import '../services/wifi_info.dart';
 import '../services/wifi_scan.dart';
+import 'live_chart.dart';
 import 'widgets.dart';
 
 const _palette = [
@@ -34,6 +36,7 @@ class _WifiAnalyzerPageState extends State<WifiAnalyzerPage> {
   final Map<String, List<(DateTime, int)>> _history = {};
   final Set<String> _selected = {};
   Timer? _timer;
+  Timer? _live;
   int _tick = 0;
   bool _loading = true;
   String _band = '2.4 GHz';
@@ -50,6 +53,16 @@ class _WifiAnalyzerPageState extends State<WifiAnalyzerPage> {
     _own = scanner.wifi ?? await WifiService.get();
     if (_own?.band != null && !_bandChosen) _band = _own!.band!;
     await _poll(trigger: true);
+    // Own network: fast reads straight from the connection (no scan limit).
+    _live = Timer.periodic(const Duration(milliseconds: 500), (_) async {
+      final s = await LiveWifi.read();
+      final b = s?.bssid ?? _own?.bssid;
+      if (!mounted || s?.rssi == null || b == null) return;
+      final now = DateTime.now();
+      final h = _history.putIfAbsent(b, () => []);
+      h.add((now, s!.rssi!));
+      h.removeWhere((e) => now.difference(e.$1).inSeconds > 90);
+    });
     _timer = Timer.periodic(const Duration(seconds: 3), (_) {
       _tick++;
       _poll(trigger: _tick % 10 == 0); // Android allows ~4 scans / 2 min
@@ -61,6 +74,7 @@ class _WifiAnalyzerPageState extends State<WifiAnalyzerPage> {
     if (!mounted) return;
     final now = DateTime.now();
     for (final a in aps) {
+      if (_isOwn(a) && _live != null) continue; // live timer feeds it
       final h = _history.putIfAbsent(a.bssid, () => []);
       h.add((now, a.rssi));
       h.removeWhere((e) => now.difference(e.$1).inSeconds > 90);
@@ -80,6 +94,7 @@ class _WifiAnalyzerPageState extends State<WifiAnalyzerPage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _live?.cancel();
     super.dispose();
   }
 
@@ -336,12 +351,20 @@ class _WifiAnalyzerPageState extends State<WifiAnalyzerPage> {
               ),
               child: AspectRatio(
                 aspectRatio: 1.45,
-                child: CustomPaint(
-                  painter: _SignalPainter(
-                    series: series,
-                    grid: cs.outlineVariant.withValues(alpha: 0.5),
-                    text: cs.onSurfaceVariant,
-                  ),
+                child: LiveChart(
+                  minY: -100,
+                  maxY: -20,
+                  yStep: 10,
+                  aspectRatio: 1.45,
+                  series: [
+                    for (final se in series)
+                      ChartSeries(
+                        color: se.color,
+                        width: se.own ? 3.5 : 2,
+                        fill: se.own,
+                        points: [for (final p in se.points) (p.$1, p.$2.toDouble())],
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -625,60 +648,4 @@ class _Series {
   final bool own;
 }
 
-class _SignalPainter extends CustomPainter {
-  _SignalPainter({required this.series, required this.grid, required this.text});
-  final List<_Series> series;
-  final Color grid;
-  final Color text;
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final plot = Rect.fromLTRB(34, 8, size.width - 4, size.height - 22);
-    _drawYAxis(canvas, plot, grid, text);
-    final now = DateTime.now();
-    const window = 60.0;
-    double x(DateTime t) =>
-        plot.right - (now.difference(t).inMilliseconds / 1000 / window) * plot.width;
-    double y(num dbm) =>
-        plot.bottom - ((dbm.clamp(_minDbm, _maxDbm) - _minDbm) / (_maxDbm - _minDbm)) * plot.height;
-
-    for (final s in [0, 15, 30, 45, 60]) {
-      final tx = plot.right - s / window * plot.width;
-      final tp = TextPainter(
-        text: TextSpan(text: s == 0 ? tr('acum', 'now') : '-${s}s', style: TextStyle(color: text, fontSize: 10)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, Offset((tx - tp.width / 2).clamp(plot.left, plot.right - tp.width).toDouble(), plot.bottom + 5));
-    }
-
-    canvas.save();
-    canvas.clipRect(plot);
-    final ordered = [...series]..sort((a, b) => (a.own ? 1 : 0).compareTo(b.own ? 1 : 0));
-    for (final s in ordered) {
-      final pts = s.points.where((p) => now.difference(p.$1).inSeconds <= window + 3).toList();
-      if (pts.isEmpty) continue;
-      final path = Path()..moveTo(x(pts.first.$1), y(pts.first.$2));
-      for (var i = 1; i < pts.length; i++) {
-        final px = x(pts[i].$1), py = y(pts[i].$2);
-        final prevX = x(pts[i - 1].$1);
-        final midX = (prevX + px) / 2;
-        path.cubicTo(midX, y(pts[i - 1].$2), midX, py, px, py);
-      }
-      path.lineTo(plot.right, y(pts.last.$2));
-      canvas.drawPath(
-          path,
-          Paint()
-            ..color = s.color
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = s.own ? 3.5 : 2
-            ..strokeCap = StrokeCap.round
-            ..strokeJoin = StrokeJoin.round);
-      canvas.drawCircle(Offset(plot.right - 2, y(pts.last.$2)), s.own ? 4.5 : 3,
-          Paint()..color = s.color);
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _SignalPainter old) => true;
-}

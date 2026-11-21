@@ -9,7 +9,9 @@ import '../app_state.dart';
 import '../core/utils.dart';
 import '../services/port_scanner.dart';
 import '../services/protocols.dart';
+import 'my_connection_page.dart';
 import 'port_scan_page.dart';
+import 'signal_finder_page.dart';
 import 'security_page.dart';
 import 'speed_test_page.dart';
 import 'traceroute_page.dart';
@@ -22,6 +24,12 @@ class ToolsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tools = <(IconData, String, String, Widget Function())>[
+      (Icons.monitor_heart_outlined, tr('Conexiunea mea', 'My connection'),
+          tr('Semnal și latență live, roaming', 'Live signal & latency, roaming'),
+          () => const MyConnectionPage()),
+      (Icons.explore_outlined, tr('Caută semnal', 'Signal finder'),
+          tr('Găsește locul cu semnal bun', 'Find the best signal spot'),
+          () => const SignalFinderPage()),
       (Icons.shield_outlined, tr('Securitate rețea', 'Network security'),
           tr('Probleme și riscuri găsite la scanare', 'Issues and risks found by the scan'),
           () => const SecurityPage()),

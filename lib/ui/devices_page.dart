@@ -6,6 +6,7 @@ import '../app_state.dart';
 import '../core/utils.dart';
 import '../models/device.dart';
 import 'device_detail_page.dart';
+import 'my_connection_page.dart';
 import 'security_page.dart';
 import 'widgets.dart';
 
@@ -601,6 +602,17 @@ class _NetworkCardState extends State<_NetworkCard> {
                 ),
               ],
               if (_expanded) ...[
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: onC.withValues(alpha: 0.10),
+                    foregroundColor: onC,
+                  ),
+                  onPressed: () => Navigator.push(context,
+                      MaterialPageRoute<void>(builder: (_) => const MyConnectionPage())),
+                  icon: const Icon(Icons.monitor_heart_outlined, size: 18),
+                  label: Text(tr('Semnal și latență live', 'Live signal & latency')),
+                ),
                 const SizedBox(height: 14),
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
