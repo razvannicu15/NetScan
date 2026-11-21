@@ -1,0 +1,36 @@
+name: netscan
+description: "NetScan – scanner de rețea Material 3 (dispozitive, IP, MAC, producător, porturi)."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  path_provider: ^2.1.4
+  url_launcher: ^6.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/oui.tsv.gz
+
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  android: true
+  ios: false
+  min_sdk_android: 21
+  adaptive_icon_background: "#0B6BCB"
+  adaptive_icon_foreground: "assets/icon_foreground.png"
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+    icon_size: 256

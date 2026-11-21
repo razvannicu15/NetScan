@@ -1,0 +1,611 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+
+import '../app_state.dart';
+import '../core/utils.dart';
+import '../services/port_scanner.dart';
+import '../services/protocols.dart';
+import 'port_scan_page.dart';
+import 'widgets.dart';
+
+class ToolsPage extends StatelessWidget {
+  const ToolsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final tools = <(IconData, String, String, Widget Function())>[
+      (Icons.network_ping, 'Ping', 'Latență și pierderi de pachete',
+          () => const PingPage()),
+      (Icons.travel_explore, 'Scanare porturi', 'Orice IP sau hostname',
+          () => const _PortHostPage()),
+      (Icons.power_settings_new, 'Wake-on-LAN', 'Pornește un PC prin rețea',
+          () => const WolPage()),
+      (Icons.dns_outlined, 'DNS lookup', 'Hostname ↔ IP',
+          () => const DnsPage()),
+      (Icons.info_outline, 'Informații rețea', 'IP local, gateway, IP public',
+          () => const NetInfoPage()),
+    ];
+    return Scaffold(
+      body: CustomScrollView(
+        slivers: [
+          const SliverAppBar.medium(title: Text('Instrumente')),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 320,
+                mainAxisExtent: 140,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+              ),
+              itemCount: tools.length,
+              itemBuilder: (context, i) {
+                final t = tools[i];
+                final cs = Theme.of(context).colorScheme;
+                return Card(
+                  elevation: 0,
+                  color: cs.surfaceContainerLow,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute<void>(builder: (_) => t.$4())),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: cs.primaryContainer,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(t.$1, color: cs.onPrimaryContainer),
+                          ),
+                          const Spacer(),
+                          Text(t.$2,
+                              style: Theme.of(context).textTheme.titleMedium),
+                          Text(t.$3,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: cs.onSurfaceVariant)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ======================================================================= Ping
+
+class PingPage extends StatefulWidget {
+  const PingPage({super.key, this.initialHost});
+  final String? initialHost;
+
+  @override
+  State<PingPage> createState() => _PingPageState();
+}
+
+class _PingPageState extends State<PingPage> {
+  late final _host = TextEditingController(
+      text: widget.initialHost ?? scanner.network?.gateway ?? '8.8.8.8');
+  final List<double?> _results = [];
+  bool _running = false;
+  bool _tcpMode = false;
+
+  Future<void> _start() async {
+    final host = _host.text.trim();
+    if (host.isEmpty) return;
+    setState(() {
+      _results.clear();
+      _running = true;
+    });
+    for (var i = 0; i < 1000 && _running && mounted; i++) {
+      final sw = Stopwatch()..start();
+      double? ms;
+      if (_tcpMode) {
+        final r = await PortScanner.probe(host, 80, const Duration(seconds: 2));
+        if (r != ProbeResult.filtered) {
+          ms = sw.elapsedMicroseconds / 1000;
+        }
+      } else {
+        final r = await PingService.ping(host, timeout: const Duration(seconds: 2));
+        if (r.alive) ms = r.timeMs ?? sw.elapsedMilliseconds.toDouble();
+      }
+      if (!mounted || !_running) break;
+      setState(() => _results.insert(0, ms));
+      final wait = 1000 - sw.elapsedMilliseconds;
+      if (wait > 0) await Future<void>.delayed(Duration(milliseconds: wait));
+    }
+    if (mounted) setState(() => _running = false);
+  }
+
+  @override
+  void dispose() {
+    _running = false;
+    _host.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final ok = _results.whereType<double>().toList();
+    final loss = _results.isEmpty
+        ? 0
+        : ((_results.length - ok.length) * 100 / _results.length).round();
+    String f(double v) => v.toStringAsFixed(v < 10 ? 1 : 0);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Ping')),
+      body: MaxWidth(
+        width: 760,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextField(
+              controller: _host,
+              enabled: !_running,
+              decoration: const InputDecoration(
+                labelText: 'Gazdă',
+                hintText: '192.168.1.1 sau google.com',
+                prefixIcon: Icon(Icons.dns_outlined),
+              ),
+              onSubmitted: (_) => _start(),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: false, label: Text('ICMP')),
+                      ButtonSegment(value: true, label: Text('TCP :80')),
+                    ],
+                    selected: {_tcpMode},
+                    onSelectionChanged: _running
+                        ? null
+                        : (s) => setState(() => _tcpMode = s.first),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: _running
+                      ? () => setState(() => _running = false)
+                      : _start,
+                  icon: Icon(_running ? Icons.stop : Icons.play_arrow),
+                  label: Text(_running ? 'Stop' : 'Start'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_results.isNotEmpty)
+              Card(
+                elevation: 0,
+                color: cs.primaryContainer,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Wrap(
+                    spacing: 28,
+                    runSpacing: 12,
+                    children: [
+                      for (final (l, v) in [
+                        ('Trimise', '${_results.length}'),
+                        ('Pierdere', '$loss%'),
+                        ('Min', ok.isEmpty ? '—' : '${f(ok.reduce((a, b) => a < b ? a : b))} ms'),
+                        ('Medie', ok.isEmpty ? '—' : '${f(ok.reduce((a, b) => a + b) / ok.length)} ms'),
+                        ('Max', ok.isEmpty ? '—' : '${f(ok.reduce((a, b) => a > b ? a : b))} ms'),
+                      ])
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(l,
+                                style: tt.labelMedium?.copyWith(
+                                    color: cs.onPrimaryContainer
+                                        .withValues(alpha: 0.7))),
+                            Text(v,
+                                style: tt.titleLarge?.copyWith(
+                                    color: cs.onPrimaryContainer)),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+            if (_results.isNotEmpty) _Sparkline(values: _results.reversed.take(60).toList()),
+            for (var i = 0; i < _results.length && i < 200; i++)
+              ListTile(
+                dense: true,
+                leading: Icon(
+                  _results[i] == null ? Icons.close_rounded : Icons.check_rounded,
+                  color: _results[i] == null ? cs.error : cs.primary,
+                ),
+                title: Text(_results[i] == null
+                    ? 'Timeout'
+                    : '${f(_results[i]!)} ms'),
+                trailing: Text('#${_results.length - i}',
+                    style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Sparkline extends StatelessWidget {
+  const _Sparkline({required this.values});
+  final List<double?> values;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 72,
+      child: CustomPaint(
+        painter: _SparkPainter(values, cs.primary, cs.error),
+        size: Size.infinite,
+      ),
+    );
+  }
+}
+
+class _SparkPainter extends CustomPainter {
+  _SparkPainter(this.values, this.color, this.errColor);
+  final List<double?> values;
+  final Color color;
+  final Color errColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final ok = values.whereType<double>();
+    final maxV = ok.isEmpty ? 1.0 : ok.reduce((a, b) => a > b ? a : b) * 1.15;
+    final n = values.length;
+    final barW = size.width / 60;
+    for (var i = 0; i < n; i++) {
+      final v = values[i];
+      final x = i * barW;
+      final paint = Paint()
+        ..color = v == null ? errColor : color.withValues(alpha: 0.8);
+      final raw = v == null ? size.height : (v / maxV) * size.height;
+      final double h = raw.clamp(2.0, size.height).toDouble();
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x + 1, size.height - h, barW - 2, h),
+          const Radius.circular(2),
+        ),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparkPainter old) => true;
+}
+
+// =============================================================== Port host
+
+class _PortHostPage extends StatefulWidget {
+  const _PortHostPage();
+
+  @override
+  State<_PortHostPage> createState() => _PortHostPageState();
+}
+
+class _PortHostPageState extends State<_PortHostPage> {
+  final _host = TextEditingController();
+
+  Future<void> _go() async {
+    var host = _host.text.trim();
+    if (host.isEmpty) return;
+    if (!isValidIp(host)) {
+      try {
+        final r = await InternetAddress.lookup(host)
+            .timeout(const Duration(seconds: 4));
+        final v4 = r.where((a) => a.type == InternetAddressType.IPv4);
+        host = (v4.isNotEmpty ? v4.first : r.first).address;
+      } catch (_) {
+        if (mounted) toast(context, 'Nu pot rezolva „$host”');
+        return;
+      }
+    }
+    if (!mounted) return;
+    Navigator.pushReplacement(context,
+        MaterialPageRoute<void>(builder: (_) => PortScanPage(host: host)));
+  }
+
+  @override
+  void dispose() {
+    _host.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Scanare porturi')),
+      body: MaxWidth(
+        width: 760,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextField(
+              controller: _host,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'IP sau hostname',
+                hintText: '192.168.1.10',
+                prefixIcon: Icon(Icons.dns_outlined),
+              ),
+              onSubmitted: (_) => _go(),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _go,
+              icon: const Icon(Icons.arrow_forward),
+              label: const Text('Continuă'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ================================================================ Wake-on-LAN
+
+class WolPage extends StatefulWidget {
+  const WolPage({super.key});
+
+  @override
+  State<WolPage> createState() => _WolPageState();
+}
+
+class _WolPageState extends State<WolPage> {
+  final _mac = TextEditingController();
+
+  @override
+  void dispose() {
+    _mac.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send(String mac) async {
+    if (normalizeMac(mac) == null) {
+      toast(context, 'Adresă MAC invalidă');
+      return;
+    }
+    final ok = await WakeOnLan.send(mac, broadcast: scanner.network?.broadcast);
+    if (mounted) toast(context, ok ? 'Magic packet trimis către $mac' : 'Eroare la trimitere');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final withMac = scanner.devices
+        .where((d) => d.mac != null && !d.isSelf)
+        .toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Wake-on-LAN')),
+      body: MaxWidth(
+        width: 760,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextField(
+              controller: _mac,
+              decoration: const InputDecoration(
+                labelText: 'Adresă MAC',
+                hintText: 'AA:BB:CC:DD:EE:FF',
+                prefixIcon: Icon(Icons.fingerprint),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => _send(_mac.text),
+              icon: const Icon(Icons.power_settings_new),
+              label: const Text('Trimite magic packet'),
+            ),
+            if (withMac.isNotEmpty) const SectionHeader('Din ultima scanare'),
+            for (final d in withMac)
+              ListTile(
+                leading: DeviceAvatar(device: d, size: 40),
+                title: Text(d.displayName),
+                subtitle: Text('${d.ip} · ${d.mac}'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.power_settings_new),
+                  onPressed: () => _send(d.mac!),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ================================================================== DNS
+
+class DnsPage extends StatefulWidget {
+  const DnsPage({super.key});
+
+  @override
+  State<DnsPage> createState() => _DnsPageState();
+}
+
+class _DnsPageState extends State<DnsPage> {
+  final _q = TextEditingController();
+  List<String> _out = [];
+  bool _busy = false;
+
+  Future<void> _go() async {
+    final q = _q.text.trim();
+    if (q.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _out = [];
+    });
+    final out = <String>[];
+    try {
+      if (isValidIp(q)) {
+        final r = await InternetAddress(q).reverse().timeout(const Duration(seconds: 5));
+        out.add(r.host == q ? 'Nicio înregistrare PTR' : r.host);
+      } else {
+        final r = await InternetAddress.lookup(q).timeout(const Duration(seconds: 5));
+        out.addAll(r.map((a) =>
+            '${a.address}  (${a.type == InternetAddressType.IPv4 ? 'IPv4' : 'IPv6'})'));
+      }
+    } catch (e) {
+      out.add('Eroare: nu s-a putut rezolva');
+    }
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _out = out;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('DNS lookup')),
+      body: MaxWidth(
+        width: 760,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextField(
+              controller: _q,
+              decoration: InputDecoration(
+                labelText: 'Hostname sau IP',
+                hintText: 'google.com / 192.168.1.1',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _busy
+                    ? const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.arrow_forward), onPressed: _go),
+              ),
+              onSubmitted: (_) => _go(),
+            ),
+            const SizedBox(height: 8),
+            for (final o in _out)
+              ListTile(
+                leading: const Icon(Icons.subdirectory_arrow_right),
+                title: SelectableText(o),
+                onLongPress: () => copyText(context, o.split(' ').first),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================== Network info
+
+class NetInfoPage extends StatefulWidget {
+  const NetInfoPage({super.key});
+
+  @override
+  State<NetInfoPage> createState() => _NetInfoPageState();
+}
+
+class _NetInfoPageState extends State<NetInfoPage> {
+  String? _publicIp;
+  String? _isp;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final req = await client.getUrl(Uri.parse('https://ipinfo.io/json'));
+      final res = await req.close().timeout(const Duration(seconds: 6));
+      final body = await res.transform(utf8.decoder).join();
+      final j = jsonDecode(body) as Map<String, dynamic>;
+      _publicIp = j['ip'] as String?;
+      _isp = [j['org'], j['city'], j['country']]
+          .whereType<String>()
+          .join(' · ');
+    } catch (_) {
+      try {
+        final req = await client.getUrl(Uri.parse('https://api.ipify.org'));
+        final res = await req.close().timeout(const Duration(seconds: 6));
+        _publicIp = (await res.transform(utf8.decoder).join()).trim();
+      } catch (_) {}
+    } finally {
+      client.close(force: true);
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final net = scanner.network;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Informații rețea')),
+      body: MaxWidth(
+        width: 760,
+        child: ListView(
+          children: [
+            const SectionHeader('Rețea locală'),
+            InfoRow(Icons.settings_ethernet, 'Interfață', net?.interfaceName),
+            InfoRow(Icons.lan_outlined, 'IP local', net?.ip),
+            InfoRow(Icons.fingerprint, 'MAC propriu', net?.selfMac),
+            InfoRow(Icons.account_tree_outlined, 'Subrețea',
+                net == null ? null : '${net.id}  (scanat: ${net.cidr})'),
+            InfoRow(Icons.router_outlined, 'Gateway', net?.gateway),
+            InfoRow(Icons.campaign_outlined, 'Broadcast', net?.broadcast),
+            InfoRow(Icons.computer, 'Nume dispozitiv', Platform.localHostname),
+            const SectionHeader('Internet'),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else ...[
+              InfoRow(Icons.public, 'IP public', _publicIp ?? 'Indisponibil'),
+              InfoRow(Icons.business_outlined, 'Furnizor / locație', _isp),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
