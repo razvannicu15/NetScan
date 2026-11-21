@@ -157,8 +157,8 @@ exit /b 0
 
 :prepare
 cd /d "%APP_DIR%"
-if exist "%APP_DIR%\%1\" goto prepared
-call flutter create --platforms=%1 --org ro.netscan --project-name netscan .
+if exist "%APP_DIR%\android\" if exist "%APP_DIR%\windows\" goto prepared
+call flutter create --platforms=android,windows --org ro.netscan --project-name netscan .
 if errorlevel 1 exit /b 1
 :prepared
 call flutter pub get
