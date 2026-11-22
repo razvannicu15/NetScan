@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_state.dart';
 import '../core/i18n.dart';
 import '../services/live_monitor.dart';
 import 'widgets.dart';
@@ -404,6 +405,34 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
                           text: cs.onSurfaceVariant,
                           colorFor: (v) => _sigColor(v, cs),
                           calibrating: calibrating ? min(measured, 10) / 10 : null,
+                          northUp: appSettings.finderNorthUp,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Material(
+                        color: cs.surface.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () => appSettings.update((s) => s.finderNorthUp = !s.finderNorthUp)
+                              .then((_) => setState(() {})),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(appSettings.finderNorthUp ? Icons.lock_outline : Icons.explore_outlined,
+                                  size: 16, color: cs.primary),
+                              const SizedBox(width: 6),
+                              Text(
+                                appSettings.finderNorthUp
+                                    ? tr('Hartă fixă', 'Fixed map')
+                                    : tr('Se rotește', 'Rotates'),
+                                style: tt.labelMedium?.copyWith(color: cs.primary, fontWeight: FontWeight.w600),
+                              ),
+                            ]),
+                          ),
                         ),
                       ),
                     ),
@@ -489,8 +518,10 @@ class _MapPainter extends CustomPainter {
     required this.text,
     required this.colorFor,
     required this.calibrating,
+    required this.northUp,
   });
 
+  final bool northUp;
   final List<_P> trail;
   final double x, y, heading;
   final _P? best;
@@ -508,7 +539,7 @@ class _MapPainter extends CustomPainter {
       maxD = max(maxD, sqrt(pow(p.x - x, 2) + pow(p.y - y, 2)) + 1);
     }
     final scale = (size.width * 0.42) / maxD; // px per metre
-    final rot = -heading * pi / 180;
+    final rot = northUp ? 0.0 : -heading * pi / 180;
     Offset toScreen(double px, double py) {
       final dx = px - x, dy = py - y;
       final rx = dx * cos(rot) - dy * sin(rot);
@@ -571,7 +602,7 @@ class _MapPainter extends CustomPainter {
       tp.paint(canvas, bp - Offset(tp.width / 2, tp.height / 2));
     } else if (exploreDir != null) {
       // dotted hint towards the stronger side found at the start
-      final a = (exploreDir! - heading - 90) * pi / 180;
+      final a = (exploreDir! - (northUp ? 0 : heading) - 90) * pi / 180;
       final dir = Offset(cos(a), sin(a));
       final dash = Paint()
         ..color = you.withValues(alpha: 0.6)
@@ -582,13 +613,26 @@ class _MapPainter extends CustomPainter {
       }
     }
 
-    // you: dot + view cone (forward = up)
+    // you: dot + view cone (forward = up, or your real heading when north-up)
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    if (northUp) canvas.rotate(heading * pi / 180);
     final cone = Path()
-      ..moveTo(c.dx, c.dy)
-      ..lineTo(c.dx - 18, c.dy - 34)
-      ..arcToPoint(Offset(c.dx + 18, c.dy - 34), radius: const Radius.circular(40))
+      ..moveTo(0, 0)
+      ..lineTo(-18, -34)
+      ..arcToPoint(const Offset(18, -34), radius: const Radius.circular(40))
       ..close();
-    canvas.drawPath(cone, Paint()..color = you.withValues(alpha: 0.18));
+    canvas.drawPath(cone, Paint()..color = you.withValues(alpha: 0.22));
+    canvas.restore();
+
+    // north marker when the map is fixed
+    if (northUp) {
+      final tp = TextPainter(
+        text: TextSpan(text: 'N', style: TextStyle(color: you, fontSize: 13, fontWeight: FontWeight.w800)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(size.width / 2 - tp.width / 2, 8));
+    }
     canvas.drawCircle(c, 11, Paint()..color = Colors.white);
     canvas.drawCircle(c, 8, Paint()..color = you);
 
