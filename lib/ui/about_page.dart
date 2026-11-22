@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/i18n.dart';
 import 'widgets.dart';
 
-const kAppVersion = '1.10.1';
+const kAppVersion = '1.10.2';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});

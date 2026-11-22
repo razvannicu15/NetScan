@@ -249,26 +249,40 @@ class MainActivity : FlutterActivity() {
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
 
-    // Simple step detector from the accelerometer (no permission needed).
+    // Step detector from the accelerometer (no permission needed).
+    // Adaptive: a slow baseline removes gravity / how the phone is held,
+    // a fast filter follows the bounce of each step; peaks above a threshold
+    // that adapts to how hard you walk count as steps.
     private var steps = 0
     private var lastStepAt = 0L
-    private var accSmooth = 9.81
-    private var accAbove = false
+    private var baseline = 9.81
+    private var fast = 0.0
+    private var prev = 0.0
+    private var rising = false
+    private var peakAvg = 1.6
     private val stepListener = object : SensorEventListener {
         override fun onSensorChanged(e: SensorEvent) {
             val x = e.values[0].toDouble()
             val y = e.values[1].toDouble()
             val z = e.values[2].toDouble()
             val mag = Math.sqrt(x * x + y * y + z * z)
-            accSmooth = accSmooth * 0.75 + mag * 0.25
+            baseline = baseline * 0.98 + mag * 0.02
+            fast = fast * 0.7 + (mag - baseline) * 0.3
             val now = System.currentTimeMillis()
-            if (!accAbove && accSmooth > 11.2 && now - lastStepAt > 320) {
-                accAbove = true
-                lastStepAt = now
-                steps++
-            } else if (accAbove && accSmooth < 10.2) {
-                accAbove = false
+            if (fast > prev) {
+                rising = true
+            } else if (rising && fast < prev) {
+                // local peak at `prev`
+                rising = false
+                val threshold = Math.max(0.9, peakAvg * 0.55)
+                val dt = now - lastStepAt
+                if (prev > threshold && dt > 280) {
+                    steps++
+                    lastStepAt = now
+                    peakAvg = peakAvg * 0.8 + Math.min(prev, 6.0) * 0.2
+                }
             }
+            prev = fast
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}

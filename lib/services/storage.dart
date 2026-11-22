@@ -47,6 +47,7 @@ class AppSettings extends ChangeNotifier {
   bool usePing = true;
   bool scanPorts = true;
   bool finderNorthUp = false;
+  bool finderSound = true;
   int probeTimeoutMs = 700;
   String customStart = '';
   String customEnd = '';
@@ -63,6 +64,7 @@ class AppSettings extends ChangeNotifier {
     usePing = j['usePing'] as bool? ?? true;
     scanPorts = j['scanPorts'] as bool? ?? true;
     finderNorthUp = j['finderNorthUp'] as bool? ?? false;
+    finderSound = j['finderSound'] as bool? ?? true;
     probeTimeoutMs = (j['probeTimeoutMs'] as int? ?? 700).clamp(200, 3000);
     customStart = j['customStart'] as String? ?? '';
     customEnd = j['customEnd'] as String? ?? '';
@@ -87,6 +89,7 @@ class AppSettings extends ChangeNotifier {
       'usePing': usePing,
       'scanPorts': scanPorts,
       'finderNorthUp': finderNorthUp,
+      'finderSound': finderSound,
       'probeTimeoutMs': probeTimeoutMs,
       'customStart': customStart,
       'customEnd': customEnd,

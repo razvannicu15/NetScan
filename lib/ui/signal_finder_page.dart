@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,7 +37,7 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
   int? _min;
   int? _max;
   String? _ssid;
-  bool _sound = true;
+  bool get _sound => appSettings.finderSound;
   bool _hasCompass = false;
   double? _heading;
 
@@ -108,7 +109,10 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
             _x += sin(rad) * _stepLen;
             _y += cos(rad) * _stepLen;
             _walked++;
-            _trail.add(_P(_x, _y, _smooth!));
+            final last = _trail.isEmpty ? null : _trail.last;
+            if (last == null || sqrt(pow(last.x - _x, 2) + pow(last.y - _y, 2)) >= 0.35) {
+              _trail.add(_P(_x, _y, _smooth!));
+            }
           }
           if (_trail.length > 600) _trail.removeRange(0, _trail.length - 600);
           if (_walked >= 3) _calibDone = true; // started walking: skip the turn
@@ -127,7 +131,26 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
 
   _P? get _best {
     if (_trail.length < 4 || _smooth == null) return null;
-    final b = _trail.reduce((a, c) => c.rssi > a.rssi ? c : a);
+    _P? bestP;
+    var bestAvg = -999.0;
+    for (final p in _trail) {
+      var sum = 0.0;
+      var n = 0;
+      for (final q in _trail) {
+        if (pow(q.x - p.x, 2) + pow(q.y - p.y, 2) <= 1.0) {
+          sum += q.rssi;
+          n++;
+        }
+      }
+      if (n < 2) continue;
+      final avg = sum / n;
+      if (avg > bestAvg) {
+        bestAvg = avg;
+        bestP = _P(p.x, p.y, avg);
+      }
+    }
+    final b = bestP;
+    if (b == null) return null;
     final d = sqrt(pow(b.x - _x, 2) + pow(b.y - _y, 2));
     if (d < 1.2 || b.rssi - _smooth! < 3) return null; // you're already there
     return b;
@@ -327,7 +350,9 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
           IconButton(
             tooltip: _sound ? tr('Fără sunet', 'Mute') : tr('Cu sunet', 'Sound on'),
             icon: Icon(_sound ? Icons.volume_up : Icons.volume_off),
-            onPressed: () => setState(() => _sound = !_sound),
+            onPressed: () => appSettings
+                .update((x) => x.finderSound = !x.finderSound)
+                .then((_) => setState(() {})),
           ),
         ],
       ),
@@ -562,17 +587,29 @@ class _MapPainter extends CustomPainter {
       tp.paint(canvas, c + Offset(4, -r * scale - tp.height));
     }
 
-    // path
+    // path: smooth curve through midpoints, colour blending between samples
     if (trail.length > 1) {
-      for (var i = 1; i < trail.length; i++) {
-        final a = toScreen(trail[i - 1].x, trail[i - 1].y), b = toScreen(trail[i].x, trail[i].y);
-        canvas.drawLine(
-            a,
-            b,
-            Paint()
-              ..color = colorFor(trail[i].rssi).withValues(alpha: 0.85)
-              ..strokeWidth = 6
-              ..strokeCap = StrokeCap.round);
+      final pts = [for (final p in trail) toScreen(p.x, p.y)];
+      Offset mid(int i) => (pts[i] + pts[i + 1]) / 2;
+      for (var i = 0; i < pts.length - 1; i++) {
+        final start = i == 0 ? pts[0] : mid(i - 1);
+        final end = i == pts.length - 2 ? pts[i + 1] : mid(i);
+        final path = Path()
+          ..moveTo(start.dx, start.dy)
+          ..quadraticBezierTo(pts[i].dx, pts[i].dy, end.dx, end.dy);
+        final c0 = colorFor(trail[i].rssi), c1 = colorFor(trail[i + 1].rssi);
+        canvas.drawPath(
+          path,
+          Paint()
+            ..shader = (end - start).distance < 0.5
+                ? null
+                : ui.Gradient.linear(start, end, [c0, c1])
+            ..color = c0
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 7
+            ..strokeCap = StrokeCap.round
+            ..strokeJoin = StrokeJoin.round,
+        );
       }
     }
     if (trail.isNotEmpty) {
