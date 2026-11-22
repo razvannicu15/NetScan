@@ -39,10 +39,17 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
   double? _heading; // smoothed, degrees
   final List<_Sector> _map = List.generate(_sectors, (_) => _Sector());
   final List<(DateTime, double)> _recent = [];
+  String? _bssid;
+  String? _band;
+  int? _channel;
+  final Map<String, int> _nodes = {}; // bssid -> 0,1,2… (Nod A, B, C)
+  String? _roamMsg;
+  DateTime? _roamAt;
 
   @override
   void initState() {
     super.initState();
+    RoamingLog.instance.load();
     _tick();
     _read = Timer.periodic(const Duration(milliseconds: 400), (_) => _tick());
     _scheduleBeep();
@@ -74,7 +81,17 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
     if (!mounted || s?.rssi == null) return;
     final r = s!.rssi!;
     final now = DateTime.now();
+    final b = s.bssid;
+    if (b != null) {
+      final first = _nodes.isEmpty;
+      _nodes.putIfAbsent(b, () => _nodes.length);
+      if (!first && _bssid != null && b != _bssid) _onRoam(_bssid!, b, s.band);
+      RoamingLog.instance.observe(s);
+    }
     setState(() {
+      _bssid = b ?? _bssid;
+      _band = s.band;
+      _channel = s.channel;
       _ssid = s.ssid;
       _smooth = _smooth == null ? r.toDouble() : _smooth! * 0.6 + r * 0.4;
       _min = _min == null ? r : min(_min!, r);
@@ -89,6 +106,21 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
         sec.at = now;
       }
     });
+  }
+
+  String _node(String bssid) => '${tr('Nod', 'Node')} ${String.fromCharCode(65 + (_nodes[bssid] ?? 0))}';
+
+  void _onRoam(String from, String to, String? band) {
+    HapticFeedback.heavyImpact();
+    if (_sound) LiveWifi.tone(9);
+    // new access point: old directions are no longer valid
+    for (final sec in _map) {
+      sec.value = null;
+      sec.at = null;
+    }
+    _roamMsg = tr('Te-ai mutat de pe ${_node(from)} pe ${_node(to)}${band != null ? ' ($band)' : ''}',
+        'Switched from ${_node(from)} to ${_node(to)}${band != null ? ' ($band)' : ''}');
+    _roamAt = DateTime.now();
   }
 
   bool _expired(_Sector s, DateTime now) => s.at == null || now.difference(s.at!) > _expire;
@@ -171,19 +203,27 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
     final c = _color(cs);
     final trend = _trend;
     final (bestDir, spread, measured) = _direction;
-    final showArrow = _hasCompass && bestDir != null && measured >= 6 && spread >= 3;
-    final now = DateTime.now();
-    final hint = !_hasCompass
-        ? tr('Mergi încet prin casă. Bipuri mai rapide și mai ascuțite = semnal mai bun.',
-            'Walk slowly around. Faster, higher beeps = better signal.')
-        : measured < 6
-            ? tr('Ține telefonul în față și rotește-te încet pe loc, o tură completă.',
-                'Hold the phone in front of you and slowly turn around once.')
-            : spread < 3
-                ? tr('Semnalul e la fel în toate direcțiile. Fă câțiva pași și rotește-te din nou.',
-                    'Signal is the same in every direction. Take a few steps and turn again.')
-                : tr('Mergi în direcția săgeții, apoi rotește-te din nou ca să verifici.',
-                    'Walk where the arrow points, then turn again to check.');
+    final found = _hasCompass && bestDir != null && measured >= 8 && spread >= 3;
+    final rel = found ? (((bestDir ?? 0) - (_heading ?? 0)) + 360) % 360 : 0.0;
+    final facing = found && (rel < 25 || rel > 335);
+    final dirText = !found
+        ? ''
+        : facing
+            ? tr('Înainte! Mergi în direcția asta', 'Straight ahead! Walk this way')
+            : rel < 157.5
+                ? tr('Întoarce-te la dreapta', 'Turn right')
+                : rel < 202.5
+                    ? tr('Întoarce-te', 'Turn around')
+                    : tr('Întoarce-te la stânga', 'Turn left');
+    final showRoam = _roamMsg != null &&
+        _roamAt != null &&
+        DateTime.now().difference(_roamAt!).inSeconds < 10;
+    final nodeLine = [
+      if (_bssid != null)
+        _nodes.length > 1 ? _node(_bssid!) : 'AP …${_bssid!.substring(9)}',
+      if (_band != null) _band!,
+      if (_channel != null) '${tr('canal', 'ch')} $_channel',
+    ].join(' · ');
 
     return Scaffold(
       appBar: AppBar(
@@ -213,80 +253,133 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
                 children: [
+                  // ---------------------------------------------- network / node
                   if (_ssid != null)
                     Text(_ssid!,
                         textAlign: TextAlign.center,
-                        style: tt.titleMedium?.copyWith(color: cs.onSurfaceVariant)),
+                        style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                  if (nodeLine.isNotEmpty)
+                    Text(nodeLine,
+                        textAlign: TextAlign.center,
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: showRoam
+                        ? Container(
+                            key: const ValueKey('roam'),
+                            margin: const EdgeInsets.only(top: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: cs.tertiaryContainer,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(children: [
+                              Icon(Icons.swap_horiz, color: cs.onTertiaryContainer),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(_roamMsg!,
+                                    style: tt.bodyMedium?.copyWith(
+                                        color: cs.onTertiaryContainer, fontWeight: FontWeight.w600)),
+                              ),
+                            ]),
+                          )
+                        : const SizedBox(key: ValueKey('none'), height: 0),
+                  ),
                   const SizedBox(height: 12),
+
+                  // ---------------------------------------------- dial
                   AspectRatio(
                     aspectRatio: 1,
                     child: CustomPaint(
-                      painter: _CompassPainter(
-                        sectors: [
-                          for (final s in _map) (s.value == null || _expired(s, now)) ? null : s.value
-                        ],
-                        heading: _hasCompass ? (_heading ?? 0) : null,
-                        bestDir: showArrow ? bestDir : null,
-                        track: cs.surfaceContainerHighest,
-                        marker: cs.onSurfaceVariant,
-                        arrow: cs.primary,
+                      painter: _FinderPainter(
+                        progress: _hasCompass && !found ? measured / _sectors : null,
                         value: _percent / 100,
                         valueColor: c,
+                        track: cs.surfaceContainerHighest,
+                        accent: cs.primary,
                       ),
                       child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (showArrow)
-                              Transform.rotate(
-                                angle: ((bestDir ?? 0) - (_heading ?? 0)) * pi / 180,
-                                child: Icon(Icons.navigation, size: 40, color: cs.primary),
-                              ),
-                            Text(
-                              '${_smooth!.round()}',
-                              style: tt.displayLarge?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: c,
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                              ),
-                            ),
-                            Text('dBm', style: tt.titleMedium?.copyWith(color: cs.onSurfaceVariant)),
-                            const SizedBox(height: 6),
-                            Row(mainAxisSize: MainAxisSize.min, children: [
-                              Text('$_label · $_percent%',
-                                  style: tt.titleMedium?.copyWith(color: c, fontWeight: FontWeight.w600)),
-                              const SizedBox(width: 6),
-                              Icon(
-                                trend > 0
-                                    ? Icons.trending_up
-                                    : trend < 0
-                                        ? Icons.trending_down
-                                        : Icons.trending_flat,
-                                color: trend > 0
-                                    ? Colors.green.shade600
-                                    : trend < 0
-                                        ? cs.error
-                                        : cs.onSurfaceVariant,
-                              ),
-                            ]),
-                          ],
-                        ),
+                        child: found
+                            ? Column(mainAxisSize: MainAxisSize.min, children: [
+                                AnimatedRotation(
+                                  turns: rel / 360,
+                                  duration: const Duration(milliseconds: 150),
+                                  child: Icon(Icons.navigation,
+                                      size: 120, color: facing ? Colors.green.shade600 : cs.primary),
+                                ),
+                                const SizedBox(height: 4),
+                                Text('${_smooth!.round()} dBm',
+                                    style: tt.titleLarge?.copyWith(
+                                        color: c,
+                                        fontWeight: FontWeight.w700,
+                                        fontFeatures: const [FontFeature.tabularFigures()])),
+                              ])
+                            : Column(mainAxisSize: MainAxisSize.min, children: [
+                                Text('${_smooth!.round()}',
+                                    style: tt.displayLarge?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                      color: c,
+                                      fontFeatures: const [FontFeature.tabularFigures()],
+                                    )),
+                                Text('dBm', style: tt.titleMedium?.copyWith(color: cs.onSurfaceVariant)),
+                                const SizedBox(height: 6),
+                                Row(mainAxisSize: MainAxisSize.min, children: [
+                                  Text('$_label · $_percent%',
+                                      style: tt.titleMedium?.copyWith(color: c, fontWeight: FontWeight.w600)),
+                                  const SizedBox(width: 6),
+                                  Icon(
+                                    trend > 0
+                                        ? Icons.trending_up
+                                        : trend < 0
+                                            ? Icons.trending_down
+                                            : Icons.trending_flat,
+                                    color: trend > 0
+                                        ? Colors.green.shade600
+                                        : trend < 0
+                                            ? cs.error
+                                            : cs.onSurfaceVariant,
+                                  ),
+                                ]),
+                              ]),
                       ),
                     ),
                   ),
                   const SizedBox(height: 12),
+
+                  // ---------------------------------------------- instruction
                   Container(
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: cs.secondaryContainer,
-                      borderRadius: BorderRadius.circular(16),
+                      color: found
+                          ? (facing ? Colors.green.shade600.withValues(alpha: 0.14) : cs.primaryContainer)
+                          : cs.secondaryContainer,
+                      borderRadius: BorderRadius.circular(18),
                     ),
-                    child: Row(children: [
-                      Icon(_hasCompass ? Icons.explore_outlined : Icons.directions_walk,
-                          color: cs.onSecondaryContainer),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(hint, style: tt.bodyMedium?.copyWith(color: cs.onSecondaryContainer)),
+                    child: Column(children: [
+                      Text(
+                        !_hasCompass
+                            ? tr('Plimbă-te prin casă', 'Walk around')
+                            : found
+                                ? dirText
+                                : tr('Rotește-te încet pe loc', 'Turn slowly on the spot'),
+                        textAlign: TextAlign.center,
+                        style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        !_hasCompass
+                            ? tr('Bipuri mai rapide și mai ascuțite = semnal mai bun.',
+                                'Faster, higher beeps = better signal.')
+                            : found
+                                ? tr('Acolo semnalul e cu aproximativ ${spread.round()} dB mai bun. După câțiva pași, rotește-te iar.',
+                                    'It is about ${spread.round()} dB better that way. After a few steps, turn again.')
+                                : measured >= 8
+                                    ? tr('Semnalul e la fel în toate direcțiile. Fă câțiva pași și încearcă din nou.',
+                                        'Same signal in every direction. Take a few steps and try again.')
+                                    : tr('Ține telefonul în față și fă o tură completă: $measured / $_sectors',
+                                        'Hold the phone in front of you and make a full turn: $measured / $_sectors'),
+                        textAlign: TextAlign.center,
+                        style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
                       ),
                     ]),
                   ),
@@ -294,6 +387,9 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
                   TableCard(margin: EdgeInsets.zero, children: [
                     InfoRow(Icons.arrow_upward, tr('Cel mai bun', 'Best'), '$_max dBm', copy: false),
                     InfoRow(Icons.arrow_downward, tr('Cel mai slab', 'Worst'), '$_min dBm', copy: false),
+                    if (_nodes.length > 1)
+                      InfoRow(Icons.hub_outlined, tr('Noduri mesh văzute', 'Mesh nodes seen'),
+                          '${_nodes.length}', copy: false),
                   ]),
                   const SizedBox(height: 8),
                   TextButton.icon(
@@ -315,110 +411,59 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
   }
 }
 
-/// Outer ring: 12 world-fixed sectors coloured by the signal measured there.
-/// Inner arc: overall signal strength. Without a compass only the inner arc.
-class _CompassPainter extends CustomPainter {
-  _CompassPainter({
-    required this.sectors,
-    required this.heading,
-    required this.bestDir,
-    required this.track,
-    required this.marker,
-    required this.arrow,
+/// Inner arc = signal strength. While calibrating, an outer ring fills
+/// as you turn (how much of the full circle has been measured).
+class _FinderPainter extends CustomPainter {
+  _FinderPainter({
+    required this.progress,
     required this.value,
     required this.valueColor,
+    required this.track,
+    required this.accent,
   });
 
-  final List<double?> sectors;
-  final double? heading;
-  final double? bestDir;
-  final Color track;
-  final Color marker;
-  final Color arrow;
+  final double? progress;
   final double value;
   final Color valueColor;
-
-  Color _heat(double v) {
-    final t = ((v + 85) / 40).clamp(0.0, 1.0).toDouble(); // -85 … -45 dBm
-    return Color.lerp(const Color(0xFFE5484D), const Color(0xFF30A46C), t)!;
-  }
+  final Color track;
+  final Color accent;
 
   @override
   void paint(Canvas canvas, Size size) {
     final c = Offset(size.width / 2, size.height / 2);
-    final rOuter = min(size.width, size.height) / 2 - 14;
-    final ringW = rOuter * 0.10;
+    final r = min(size.width, size.height) / 2 - 10;
+    final w = r * 0.06;
 
-    // inner strength arc (270°)
-    final rIn = rOuter - ringW - 18;
-    final rect = Rect.fromCircle(center: c, radius: rIn);
-    const start = 135 * pi / 180;
-    const sweep = 270 * pi / 180;
-    final arcW = rIn * 0.07;
-    canvas.drawArc(
-        rect,
+    void arc(double radius, double start, double sweep, Color color, double width) {
+      canvas.drawArc(
+        Rect.fromCircle(center: c, radius: radius),
         start,
         sweep,
         false,
         Paint()
-          ..color = track
+          ..color = color
           ..style = PaintingStyle.stroke
-          ..strokeWidth = arcW
-          ..strokeCap = StrokeCap.round);
-    if (value > 0) {
-      canvas.drawArc(
-          rect,
-          start,
-          sweep * value,
-          false,
-          Paint()
-            ..color = valueColor
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = arcW
-            ..strokeCap = StrokeCap.round);
-    }
-
-    final h = heading;
-    if (h == null) return;
-
-    // outer direction ring, rotated so the top of the screen = where you face
-    final seg = 2 * pi / sectors.length;
-    final orect = Rect.fromCircle(center: c, radius: rOuter - ringW / 2);
-    for (var i = 0; i < sectors.length; i++) {
-      final worldDeg = i * 360 / sectors.length;
-      final a = (worldDeg - h - 90) * pi / 180; // -90: 0° at top
-      final v = sectors[i];
-      canvas.drawArc(
-        orect,
-        a + 0.03,
-        seg - 0.06,
-        false,
-        Paint()
-          ..color = v == null ? track : _heat(v)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = ringW,
+          ..strokeWidth = width
+          ..strokeCap = StrokeCap.round,
       );
     }
 
-    // "you are facing" marker at the top
-    final top = Offset(c.dx, c.dy - rOuter);
-    final face = Path()
-      ..moveTo(top.dx - 8, top.dy - 10)
-      ..lineTo(top.dx + 8, top.dy - 10)
-      ..lineTo(top.dx, top.dy)
-      ..close();
-    canvas.drawPath(face, Paint()..color = marker);
+    // strength arc (270°)
+    const start = 135 * pi / 180;
+    const sweep = 270 * pi / 180;
+    final rIn = r - w * 3;
+    arc(rIn, start, sweep, track, w);
+    if (value > 0) arc(rIn, start, sweep * value, valueColor, w);
 
-    // best direction marker on the ring
-    final b = bestDir;
-    if (b != null) {
-      final a = (b - h - 90) * pi / 180;
-      final p = c + Offset(cos(a), sin(a)) * (rOuter - ringW / 2);
-      canvas.drawCircle(p, ringW * 0.75, Paint()..color = arrow);
-      canvas.drawCircle(p, ringW * 0.35, Paint()..color = Colors.white);
+    // calibration ring
+    final p = progress;
+    if (p != null) {
+      arc(r, -pi / 2, 2 * pi, track.withValues(alpha: 0.6), w * 0.6);
+      if (p > 0) arc(r, -pi / 2, 2 * pi * p.clamp(0.0, 1.0).toDouble(), accent, w * 0.6);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _CompassPainter old) => true;
+  bool shouldRepaint(covariant _FinderPainter old) =>
+      old.progress != progress || old.value != value || old.valueColor != valueColor;
 }
