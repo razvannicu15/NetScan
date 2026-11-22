@@ -1,7 +1,7 @@
 name: netscan
 description: "NetScan – scanner de rețea Material 3 (dispozitive, IP, MAC, producător, porturi)."
 publish_to: "none"
-version: 1.10.3+24
+version: 1.10.4+25
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
