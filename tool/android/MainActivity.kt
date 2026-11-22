@@ -3,6 +3,10 @@ package ro.netscan.netscan
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.LocationManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
@@ -67,6 +71,12 @@ class MainActivity : FlutterActivity() {
                             result.error("ERR", e.message, null)
                         }
                     }
+                    "compassStart" -> result.success(compassStart())
+                    "compassStop" -> {
+                        compassStop()
+                        result.success(null)
+                    }
+                    "heading" -> result.success(azimuth)
                     "tone" -> {
                         tone(call.argument<Int>("level") ?: 5)
                         result.success(null)
@@ -218,7 +228,44 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private var sensorManager: SensorManager? = null
+    private var azimuth: Double? = null
+    private val compassListener = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent) {
+            val rot = FloatArray(9)
+            SensorManager.getRotationMatrixFromVector(rot, e.values)
+            val o = FloatArray(3)
+            SensorManager.getOrientation(rot, o)
+            // Phone held upright in front of you: remap so the back camera axis is "forward".
+            if (Math.abs(o[1]) > Math.toRadians(45.0)) {
+                val r2 = FloatArray(9)
+                SensorManager.remapCoordinateSystem(rot, SensorManager.AXIS_X, SensorManager.AXIS_Z, r2)
+                SensorManager.getOrientation(r2, o)
+            }
+            azimuth = (Math.toDegrees(o[0].toDouble()) + 360.0) % 360.0
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    private fun compassStart(): Boolean {
+        val sm = applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val sensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            ?: sm.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+            ?: return false
+        sm.registerListener(compassListener, sensor, SensorManager.SENSOR_DELAY_GAME)
+        sensorManager = sm
+        return true
+    }
+
+    private fun compassStop() {
+        sensorManager?.unregisterListener(compassListener)
+        sensorManager = null
+        azimuth = null
+    }
+
     override fun onDestroy() {
+        compassStop()
         toneGen?.release()
         toneGen = null
         super.onDestroy()

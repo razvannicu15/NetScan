@@ -51,7 +51,8 @@ class ToolsPage extends StatelessWidget {
             _Tool(Icons.wifi_find, tr('Analizor Wi-Fi', 'Wi-Fi analyzer'),
                 tr('Rețelele vecine și canalul cel mai liber', 'Nearby networks and the freest channel'),
                 () => const WifiAnalyzerPage()),
-            _Tool(Icons.explore_outlined, tr('Caută semnal', 'Signal finder'),
+            if (Platform.isAndroid)
+              _Tool(Icons.explore_outlined, tr('Caută semnal', 'Signal finder'),
                 tr('Plimbă-te prin casă, bipul te ghidează', 'Walk around, beeps guide you'),
                 () => const SignalFinderPage()),
           ],

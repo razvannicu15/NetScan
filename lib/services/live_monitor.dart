@@ -248,3 +248,32 @@ class CellReading {
     }
   }
 }
+
+/// Phone compass (Android rotation-vector sensor). Heading in degrees, 0 = north.
+class Compass {
+  static const _ch = MethodChannel('netscan/wifi');
+
+  static Future<bool> start() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      return (await _ch.invokeMethod<bool>('compassStart')) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> stop() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _ch.invokeMethod<void>('compassStop');
+    } catch (_) {}
+  }
+
+  static Future<double?> heading() async {
+    try {
+      return (await _ch.invokeMethod<num>('heading'))?.toDouble();
+    } catch (_) {
+      return null;
+    }
+  }
+}

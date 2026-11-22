@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -60,6 +61,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
   int _ticks = 0;
 
   bool get _mobile => _conn?.kind == NetKind.cellular;
+  bool _wired = false; // desktop on Ethernet: no Wi-Fi signal to show
   final List<(DateTime, double)> _signal = [];
   final _router = _PingStats();
   final _internet = _PingStats();
@@ -100,7 +102,12 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
       return;
     }
     final s = await LiveWifi.read();
-    if (!mounted || s == null) return;
+    if (!mounted) return;
+    if (s == null || s.bssid == null && s.rssi == null) {
+      if (Platform.isWindows && !_wired) setState(() => _wired = true);
+      return;
+    }
+    if (_wired) _wired = false;
     final now = DateTime.now();
     if (s.rssi != null) {
       _signal.add((now, s.rssi!.toDouble()));
@@ -192,6 +199,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
     final rssi = _mobile ? _cell?.dbm : s?.rssi;
     final verdict = _verdict(cs);
     final mobile = _mobile;
+    final wired = _wired && !mobile;
     Color sigColor(int v) => mobile
         ? (v >= -90 ? Colors.green.shade600 : v >= -105 ? Colors.orange.shade700 : cs.error)
         : _rssiColor(v, cs);
@@ -225,14 +233,14 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                   ),
                   child: Row(
                     children: [
-                      Icon(mobile ? Icons.signal_cellular_alt : Icons.wifi,
+                      Icon(mobile ? Icons.signal_cellular_alt : wired ? Icons.settings_ethernet : Icons.wifi,
                           size: 30, color: rssi == null ? cs.onSurfaceVariant : sigColor(rssi)),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(mobile ? (_conn?.label(tr) ?? '') : (s?.ssid ?? scanner.wifi?.ssid ?? 'Wi-Fi'),
+                            Text(mobile ? (_conn?.label(tr) ?? '') : wired ? 'Ethernet' : (s?.ssid ?? scanner.wifi?.ssid ?? 'Wi-Fi'),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
@@ -284,7 +292,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                 const SizedBox(height: 14),
 
                 // ---------------------------------------------------- chart
-                SegmentedButton<int>(
+                if (!wired) SegmentedButton<int>(
                   segments: [
                     ButtonSegment(value: 0, icon: const Icon(Icons.network_wifi), label: Text(tr('Semnal', 'Signal'))),
                     ButtonSegment(value: 1, icon: const Icon(Icons.timer_outlined), label: Text(tr('Latență', 'Latency'))),
@@ -300,7 +308,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.35)),
                   ),
-                  child: _tab == 0
+                  child: _tab == 0 && !wired
                       ? LiveChart(
                           minY: mobile ? -130 : -90,
                           maxY: mobile ? -50 : -20,
@@ -389,7 +397,8 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                     label: Text(tr('Detalii rețea mobilă', 'Mobile network details')),
                   ),
                 ],
-                if (!mobile) ...[
+                if (!mobile && !wired) ...[
+                if (Platform.isAndroid) ...[
                 const SizedBox(height: 14),
                 FilledButton.tonalIcon(
                   onPressed: () => Navigator.push(context,
@@ -397,6 +406,7 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                   icon: const Icon(Icons.explore_outlined),
                   label: Text(tr('Caută locul cu semnal bun', 'Find the best signal spot')),
                 ),
+                ],
 
                 // ---------------------------------------------------- roaming
                 SectionHeader(
