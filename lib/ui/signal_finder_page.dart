@@ -19,8 +19,13 @@ class SignalFinderPage extends StatefulWidget {
 }
 
 class _Sector {
-  double? value;
-  DateTime? at;
+  double sum = 0;
+  int n = 0;
+  double? get value => n == 0 ? null : sum / n;
+  void clear() {
+    sum = 0;
+    n = 0;
+  }
 }
 
 class _SignalFinderPageState extends State<SignalFinderPage> {
@@ -45,6 +50,15 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
   final Map<String, int> _nodes = {}; // bssid -> 0,1,2… (Nod A, B, C)
   String? _roamMsg;
   DateTime? _roamAt;
+
+  // Locked target (world heading) once a full turn is done.
+  double? _target;
+  double _gain = 0; // dB better towards target
+  double? _lockRssi;
+  double _arrowTurns = 0; // continuous, so the arrow never spins the long way
+  int _dir = 0; // 0 ahead, 1 right, 2 behind, 3 left
+  int _dirCandidate = 0;
+  DateTime _dirSince = DateTime.now();
 
   @override
   void initState() {
@@ -71,9 +85,72 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
         _heading = h;
       } else {
         final d = ((h - cur + 540) % 360) - 180; // shortest way
-        _heading = (cur + d * 0.25 + 360) % 360;
+        _heading = (cur + d * 0.2 + 360) % 360;
+      }
+      final t = _target;
+      if (t != null) {
+        final rel = (t - _heading! + 360) % 360;
+        final want = rel / 360;
+        var diff = (want - _arrowTurns) % 1.0;
+        if (diff > 0.5) diff -= 1.0;
+        if (diff < -0.5) diff += 1.0;
+        _arrowTurns += diff;
+        // signed angle -180..180 → direction bucket, debounced 0.6 s
+        final sgn = ((rel + 180) % 360) - 180;
+        final cand = sgn.abs() <= 35
+            ? 0
+            : sgn.abs() >= 145
+                ? 2
+                : sgn > 0
+                    ? 1
+                    : 3;
+        final now = DateTime.now();
+        if (cand != _dirCandidate) {
+          _dirCandidate = cand;
+          _dirSince = now;
+        } else if (cand != _dir && now.difference(_dirSince).inMilliseconds >= 600) {
+          _dir = cand;
+          HapticFeedback.selectionClick();
+        }
       }
     });
+  }
+
+  void _recalibrate() {
+    for (final sec in _map) {
+      sec.clear();
+    }
+    _target = null;
+    _lockRssi = null;
+    _gain = 0;
+  }
+
+  /// After enough of the circle is measured, lock the best direction.
+  void _tryLock() {
+    final vals = [for (final s in _map) s.value];
+    final measured = vals.whereType<double>().length;
+    if (measured < 10) return;
+    // smooth with neighbours to resist noise
+    final score = <double?>[];
+    for (var i = 0; i < _sectors; i++) {
+      final v = vals[i];
+      if (v == null) {
+        score.add(null);
+        continue;
+      }
+      final l = vals[(i - 1 + _sectors) % _sectors] ?? v;
+      final r = vals[(i + 1) % _sectors] ?? v;
+      score.add(v * 0.5 + l * 0.25 + r * 0.25);
+    }
+    final ok = score.whereType<double>().toList();
+    final best = ok.reduce(max), worst = ok.reduce(min);
+    if (best - worst < 4) return; // flat: no meaningful direction
+    final i = score.indexOf(best);
+    _target = i * (360 / _sectors) + 360 / _sectors / 2;
+    _gain = best - worst;
+    _lockRssi = _smooth;
+    _dir = _dirCandidate = 0;
+    HapticFeedback.mediumImpact();
   }
 
   Future<void> _tick() async {
@@ -99,12 +176,15 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
       _recent.add((now, r.toDouble()));
       _recent.removeWhere((p) => now.difference(p.$1).inSeconds > 6);
       final h = _heading;
-      if (h != null) {
-        final sec = _map[(h / (360 / _sectors)).floor() % _sectors];
-        final old = sec.value;
-        sec.value = (old == null || _expired(sec, now)) ? r.toDouble() : old * 0.5 + r * 0.5;
-        sec.at = now;
+      if (h != null && _target == null) {
+        _map[(h / (360 / _sectors)).floor() % _sectors]
+          ..sum += r
+          ..n += 1;
+        _tryLock();
       }
+      // walked a few metres (signal changed a lot): ask for a new turn
+      final lock = _lockRssi;
+      if (_target != null && lock != null && (_smooth! - lock).abs() >= 7) _recalibrate();
     });
   }
 
@@ -114,40 +194,14 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
     HapticFeedback.heavyImpact();
     if (_sound) LiveWifi.tone(9);
     // new access point: old directions are no longer valid
-    for (final sec in _map) {
-      sec.value = null;
-      sec.at = null;
-    }
+    _recalibrate();
     _roamMsg = tr('Te-ai mutat de pe ${_node(from)} pe ${_node(to)}${band != null ? ' ($band)' : ''}',
         'Switched from ${_node(from)} to ${_node(to)}${band != null ? ' ($band)' : ''}');
     _roamAt = DateTime.now();
   }
 
-  bool _expired(_Sector s, DateTime now) => s.at == null || now.difference(s.at!) > _expire;
 
   int get _percent => _smooth == null ? 0 : (2 * (_smooth! + 100)).clamp(0, 100).round();
-
-  /// (best direction in degrees, spread dB, sectors measured)
-  (double?, double, int) get _direction {
-    final now = DateTime.now();
-    double? best;
-    double? worst;
-    int? bestI;
-    var n = 0;
-    for (var i = 0; i < _sectors; i++) {
-      final s = _map[i];
-      final v = s.value;
-      if (v == null || _expired(s, now)) continue;
-      n++;
-      if (best == null || v > best) {
-        best = v;
-        bestI = i;
-      }
-      if (worst == null || v < worst) worst = v;
-    }
-    if (bestI == null || best == null || worst == null) return (null, 0, 0);
-    return (bestI * (360 / _sectors) + 15, best - worst, n);
-  }
 
   void _scheduleBeep() {
     _beep?.cancel();
@@ -202,19 +256,18 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
     final tt = Theme.of(context).textTheme;
     final c = _color(cs);
     final trend = _trend;
-    final (bestDir, spread, measured) = _direction;
-    final found = _hasCompass && bestDir != null && measured >= 8 && spread >= 3;
-    final rel = found ? (((bestDir ?? 0) - (_heading ?? 0)) + 360) % 360 : 0.0;
-    final facing = found && (rel < 25 || rel > 335);
+    final measured = _map.where((x) => x.n > 0).length;
+    final found = _hasCompass && _target != null;
+    final facing = found && _dir == 0;
+    final flat = _hasCompass && !found && measured >= _sectors;
     final dirText = !found
         ? ''
-        : facing
-            ? tr('Înainte! Mergi în direcția asta', 'Straight ahead! Walk this way')
-            : rel < 157.5
-                ? tr('Întoarce-te la dreapta', 'Turn right')
-                : rel < 202.5
-                    ? tr('Întoarce-te', 'Turn around')
-                    : tr('Întoarce-te la stânga', 'Turn left');
+        : switch (_dir) {
+            0 => tr('Înainte! Mergi în direcția asta', 'Straight ahead! Walk this way'),
+            1 => tr('Întoarce-te la dreapta', 'Turn right'),
+            2 => tr('Întoarce-te', 'Turn around'),
+            _ => tr('Întoarce-te la stânga', 'Turn left'),
+          };
     final showRoam = _roamMsg != null &&
         _roamAt != null &&
         DateTime.now().difference(_roamAt!).inSeconds < 10;
@@ -292,7 +345,7 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
                     aspectRatio: 1,
                     child: CustomPaint(
                       painter: _FinderPainter(
-                        progress: _hasCompass && !found ? measured / _sectors : null,
+                        progress: _hasCompass && !found ? measured / 10 : null,
                         value: _percent / 100,
                         valueColor: c,
                         track: cs.surfaceContainerHighest,
@@ -302,8 +355,9 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
                         child: found
                             ? Column(mainAxisSize: MainAxisSize.min, children: [
                                 AnimatedRotation(
-                                  turns: rel / 360,
-                                  duration: const Duration(milliseconds: 150),
+                                  turns: _arrowTurns,
+                                  duration: const Duration(milliseconds: 220),
+                                  curve: Curves.easeOut,
                                   child: Icon(Icons.navigation,
                                       size: 120, color: facing ? Colors.green.shade600 : cs.primary),
                                 ),
@@ -371,13 +425,13 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
                             ? tr('Bipuri mai rapide și mai ascuțite = semnal mai bun.',
                                 'Faster, higher beeps = better signal.')
                             : found
-                                ? tr('Acolo semnalul e cu aproximativ ${spread.round()} dB mai bun. După câțiva pași, rotește-te iar.',
-                                    'It is about ${spread.round()} dB better that way. After a few steps, turn again.')
-                                : measured >= 8
+                                ? tr('Acolo semnalul e cu ~${_gain.round()} dB mai bun. Direcția rămâne fixă; după ce te muți, îți cer o tură nouă.',
+                                    'About ${_gain.round()} dB better that way. The direction stays fixed; after you move, you\'ll be asked for a new turn.')
+                                : flat
                                     ? tr('Semnalul e la fel în toate direcțiile. Fă câțiva pași și încearcă din nou.',
                                         'Same signal in every direction. Take a few steps and try again.')
-                                    : tr('Ține telefonul în față și fă o tură completă: $measured / $_sectors',
-                                        'Hold the phone in front of you and make a full turn: $measured / $_sectors'),
+                                    : tr('Ține telefonul în față și fă o tură completă: ${min(measured, 10)} / 10',
+                                        'Hold the phone in front of you and make a full turn: ${min(measured, 10)} / 10'),
                         textAlign: TextAlign.center,
                         style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
                       ),
@@ -396,13 +450,10 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
                     onPressed: () => setState(() {
                       _min = null;
                       _max = null;
-                      for (final s in _map) {
-                        s.value = null;
-                        s.at = null;
-                      }
+                      _recalibrate();
                     }),
                     icon: const Icon(Icons.restart_alt),
-                    label: Text(tr('Ia-o de la capăt', 'Start over')),
+                    label: Text(tr('Caută din nou', 'Search again')),
                   ),
                 ],
               ),
