@@ -7,6 +7,7 @@ import '../core/i18n.dart';
 import '../services/live_monitor.dart';
 import '../services/protocols.dart';
 import 'live_chart.dart';
+import 'mobile_network_page.dart';
 import 'signal_finder_page.dart';
 import 'widgets.dart';
 
@@ -377,6 +378,15 @@ class _MyConnectionPageState extends State<MyConnectionPage> {
                       const SizedBox(width: 12),
                       Expanded(child: Text(verdict.$2, style: tt.bodyMedium)),
                     ]),
+                  ),
+                ],
+                if (mobile) ...[
+                  const SizedBox(height: 14),
+                  FilledButton.tonalIcon(
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute<void>(builder: (_) => const MobileNetworkPage())),
+                    icon: const Icon(Icons.cell_tower),
+                    label: Text(tr('Detalii rețea mobilă', 'Mobile network details')),
                   ),
                 ],
                 if (!mobile) ...[

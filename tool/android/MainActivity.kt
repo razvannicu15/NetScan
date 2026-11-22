@@ -7,6 +7,12 @@ import android.location.LocationManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.telephony.CellIdentityNr
+import android.telephony.CellInfo
+import android.telephony.CellInfoGsm
+import android.telephony.CellInfoLte
+import android.telephony.CellInfoNr
+import android.telephony.CellInfoWcdma
 import android.telephony.CellSignalStrengthCdma
 import android.telephony.CellSignalStrengthGsm
 import android.telephony.CellSignalStrengthLte
@@ -54,14 +60,12 @@ class MainActivity : FlutterActivity() {
                             result.error("ERR", e.message, null)
                         }
                     }
-                    "widget" -> {
-                        val p = getSharedPreferences(NetScanWidget.PREFS, Context.MODE_PRIVATE).edit()
-                        for (k in listOf("ssid", "devices", "time", "noWifi")) {
-                            call.argument<String>(k)?.let { p.putString(k, it) }
+                    "cellinfo" -> {
+                        try {
+                            result.success(cellInfo())
+                        } catch (e: Exception) {
+                            result.error("ERR", e.message, null)
                         }
-                        p.apply()
-                        NetScanWidget.updateAll(applicationContext)
-                        result.success(null)
                     }
                     "tone" -> {
                         tone(call.argument<Int>("level") ?: 5)
@@ -278,6 +282,124 @@ class MainActivity : FlutterActivity() {
             }
         } else if (Build.VERSION.SDK_INT >= 28) {
             m["level"] = tm.signalStrength?.level
+        }
+        return m
+    }
+
+    @Suppress("DEPRECATION")
+    private fun cellInfo(): HashMap<String, Any?> {
+        val tm = applicationContext.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        val m = HashMap<String, Any?>()
+        m["operator"] = tm.networkOperatorName
+        m["simOperator"] = tm.simOperatorName
+        m["simCountry"] = tm.simCountryIso
+        m["netCountry"] = tm.networkCountryIso
+        m["mccmnc"] = tm.networkOperator
+        m["roaming"] = tm.isNetworkRoaming
+        m["hasLocation"] = hasLocation()
+        if (Build.VERSION.SDK_INT >= 29) {
+            val list = tm.signalStrength?.cellSignalStrengths ?: emptyList()
+            for (s in list) {
+                if (s is CellSignalStrengthNr) {
+                    m["nrRsrp"] = s.ssRsrp
+                    m["nrRsrq"] = s.ssRsrq
+                    m["nrSinr"] = s.ssSinr
+                    m["nrDbm"] = s.dbm
+                } else if (s is CellSignalStrengthLte) {
+                    m["lteRsrp"] = s.rsrp
+                    m["lteRsrq"] = s.rsrq
+                    m["lteSnr"] = s.rssnr
+                    m["lteDbm"] = s.dbm
+                }
+            }
+        }
+        val cells = ArrayList<HashMap<String, Any?>>()
+        if (hasLocation()) {
+            try {
+                tm.allCellInfo?.forEach { ci -> cellMap(ci)?.let { cells.add(it) } }
+            } catch (e: Exception) {
+            }
+            if (Build.VERSION.SDK_INT >= 29) {
+                try {
+                    tm.requestCellInfoUpdate(mainExecutor, object : TelephonyManager.CellInfoCallback() {
+                        override fun onCellInfo(cellInfo: MutableList<CellInfo>) {}
+                    })
+                } catch (e: Exception) {
+                }
+            }
+        }
+        m["cells"] = cells
+        return m
+    }
+
+    private fun cellMap(ci: CellInfo): HashMap<String, Any?>? {
+        val m = HashMap<String, Any?>()
+        m["registered"] = ci.isRegistered
+        if (ci is CellInfoLte) {
+            val id = ci.cellIdentity
+            val s = ci.cellSignalStrength
+            m["type"] = "4G"
+            m["ci"] = id.ci.toLong()
+            m["tac"] = id.tac
+            m["pci"] = id.pci
+            m["arfcn"] = if (Build.VERSION.SDK_INT >= 24) id.earfcn else null
+            if (Build.VERSION.SDK_INT >= 30) m["bands"] = id.bands.toList()
+            if (Build.VERSION.SDK_INT >= 28) {
+                m["mcc"] = id.mccString
+                m["mnc"] = id.mncString
+                m["op"] = id.operatorAlphaShort?.toString()
+            }
+            m["dbm"] = s.dbm
+            m["level"] = s.level
+            m["rsrp"] = s.rsrp
+            m["rsrq"] = s.rsrq
+            m["snr"] = s.rssnr
+        } else if (Build.VERSION.SDK_INT >= 29 && ci is CellInfoNr) {
+            val id = ci.cellIdentity as CellIdentityNr
+            val s = ci.cellSignalStrength as CellSignalStrengthNr
+            m["type"] = "5G"
+            m["ci"] = id.nci
+            m["tac"] = id.tac
+            m["pci"] = id.pci
+            m["arfcn"] = id.nrarfcn
+            if (Build.VERSION.SDK_INT >= 30) m["bands"] = id.bands.toList()
+            m["mcc"] = id.mccString
+            m["mnc"] = id.mncString
+            m["op"] = id.operatorAlphaShort?.toString()
+            m["dbm"] = s.dbm
+            m["level"] = s.level
+            m["rsrp"] = s.ssRsrp
+            m["rsrq"] = s.ssRsrq
+            m["snr"] = s.ssSinr
+        } else if (ci is CellInfoWcdma) {
+            val id = ci.cellIdentity
+            m["type"] = "3G"
+            m["ci"] = id.cid.toLong()
+            m["tac"] = id.lac
+            m["pci"] = id.psc
+            m["arfcn"] = if (Build.VERSION.SDK_INT >= 24) id.uarfcn else null
+            if (Build.VERSION.SDK_INT >= 28) {
+                m["mcc"] = id.mccString
+                m["mnc"] = id.mncString
+                m["op"] = id.operatorAlphaShort?.toString()
+            }
+            m["dbm"] = ci.cellSignalStrength.dbm
+            m["level"] = ci.cellSignalStrength.level
+        } else if (ci is CellInfoGsm) {
+            val id = ci.cellIdentity
+            m["type"] = "2G"
+            m["ci"] = id.cid.toLong()
+            m["tac"] = id.lac
+            m["arfcn"] = if (Build.VERSION.SDK_INT >= 24) id.arfcn else null
+            if (Build.VERSION.SDK_INT >= 28) {
+                m["mcc"] = id.mccString
+                m["mnc"] = id.mncString
+                m["op"] = id.operatorAlphaShort?.toString()
+            }
+            m["dbm"] = ci.cellSignalStrength.dbm
+            m["level"] = ci.cellSignalStrength.level
+        } else {
+            return null
         }
         return m
     }

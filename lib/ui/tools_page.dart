@@ -10,6 +10,7 @@ import '../core/utils.dart';
 import '../services/live_monitor.dart';
 import '../services/port_scanner.dart';
 import '../services/protocols.dart';
+import 'mobile_network_page.dart';
 import 'my_connection_page.dart';
 import 'port_scan_page.dart';
 import 'signal_finder_page.dart';
@@ -55,6 +56,17 @@ class ToolsPage extends StatelessWidget {
                 () => const SignalFinderPage()),
           ],
         ),
+        if (Platform.isAndroid)
+          _Group(
+            Icons.signal_cellular_alt,
+            tr('Mobil', 'Mobile'),
+            tr('Rețeaua operatorului, pentru telefon', 'Your carrier network, on the phone'),
+            [
+              _Tool(Icons.cell_tower, tr('Rețea mobilă', 'Mobile network'),
+                  tr('Operator, 4G/5G, calitate, antene din jur', 'Carrier, 4G/5G, quality, nearby cells'),
+                  () => const MobileNetworkPage()),
+            ],
+          ),
         _Group(
           Icons.public,
           'Internet',

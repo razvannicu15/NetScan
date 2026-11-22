@@ -248,25 +248,3 @@ class CellReading {
     }
   }
 }
-
-/// Pushes the latest summary to the Android home-screen widget.
-class HomeWidget {
-  static const _ch = MethodChannel('netscan/wifi');
-
-  static Future<void> update({
-    String? ssid,
-    required String devices,
-    required String time,
-    required String noWifi,
-  }) async {
-    if (!Platform.isAndroid) return;
-    try {
-      await _ch.invokeMethod<void>('widget', {
-        'ssid': ssid ?? '',
-        'devices': devices,
-        'time': time,
-        'noWifi': noWifi,
-      });
-    } catch (_) {}
-  }
-}
