@@ -290,7 +290,10 @@ class MainActivity : FlutterActivity() {
 
     private fun compassStart(): Boolean {
         val sm = applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        val sensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        // Gyro-based rotation (no magnetometer): not disturbed by metal indoors.
+        // Not north-referenced, which is fine for a relative map.
+        val sensor = sm.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+            ?: sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
             ?: sm.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
             ?: return false
         sm.registerListener(compassListener, sensor, SensorManager.SENSOR_DELAY_GAME)

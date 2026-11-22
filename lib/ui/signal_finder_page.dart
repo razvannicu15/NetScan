@@ -50,6 +50,8 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
   DateTime? _roamAt;
 
   // path
+  double _accS = 0, _accC = 0; // heading samples since last step (circular mean)
+  double? _axis; // direction of the first walk: walls are assumed parallel / perpendicular to it
   double _x = 0, _y = 0;
   int? _lastSteps;
   int _walked = 0;
@@ -100,23 +102,36 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
       final cur = _heading;
       _heading = cur == null ? h : (cur + (((h - cur + 540) % 360) - 180) * 0.2 + 360) % 360;
 
+      final hr = _heading! * pi / 180;
+      _accS += sin(hr);
+      _accC += cos(hr);
+
       if (steps != null) {
         final last = _lastSteps;
         _lastSteps = steps;
         if (last != null && steps > last && _smooth != null) {
-          final rad = _heading! * pi / 180;
+          // average heading during these steps
+          var dir = (atan2(_accS, _accC) * 180 / pi + 360) % 360;
+          _axis ??= dir;
+          // align to walls (multiples of 45° from the first walk) when close
+          final rel = ((dir - _axis! + 540) % 360) - 180;
+          final snap = (rel / 45).round() * 45.0;
+          if ((rel - snap).abs() <= 18) dir = (_axis! + snap + 360) % 360;
+          final rad = dir * pi / 180;
           for (var i = 0; i < steps - last; i++) {
             _x += sin(rad) * _stepLen;
             _y += cos(rad) * _stepLen;
             _walked++;
-            final last = _trail.isEmpty ? null : _trail.last;
-            if (last == null || sqrt(pow(last.x - _x, 2) + pow(last.y - _y, 2)) >= 0.35) {
+            final lp = _trail.isEmpty ? null : _trail.last;
+            if (lp == null || sqrt(pow(lp.x - _x, 2) + pow(lp.y - _y, 2)) >= 0.35) {
               _trail.add(_P(_x, _y, _smooth!));
             }
           }
           if (_trail.length > 600) _trail.removeRange(0, _trail.length - 600);
           if (_walked >= 3) _calibDone = true; // started walking: skip the turn
         }
+        _accS = 0;
+        _accC = 0;
       }
       _updateArrow();
     });
@@ -242,6 +257,8 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
   }
 
   void _reset() {
+    _axis = null;
+    _accS = _accC = 0;
     _x = _y = 0;
     _walked = 0;
     _trail.clear();
@@ -431,6 +448,7 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
                           colorFor: (v) => _sigColor(v, cs),
                           calibrating: calibrating ? min(measured, 10) / 10 : null,
                           northUp: appSettings.finderNorthUp,
+                          axis: _axis,
                         ),
                       ),
                     ),
@@ -544,9 +562,11 @@ class _MapPainter extends CustomPainter {
     required this.colorFor,
     required this.calibrating,
     required this.northUp,
+    required this.axis,
   });
 
   final bool northUp;
+  final double? axis;
   final List<_P> trail;
   final double x, y, heading;
   final _P? best;
@@ -564,7 +584,8 @@ class _MapPainter extends CustomPainter {
       maxD = max(maxD, sqrt(pow(p.x - x, 2) + pow(p.y - y, 2)) + 1);
     }
     final scale = (size.width * 0.42) / maxD; // px per metre
-    final rot = northUp ? 0.0 : -heading * pi / 180;
+    final double ref = northUp ? (axis ?? 0.0) : heading; // fixed: first walk points up
+    final rot = -ref * pi / 180;
     Offset toScreen(double px, double py) {
       final dx = px - x, dy = py - y;
       final rx = dx * cos(rot) - dy * sin(rot);
@@ -639,7 +660,7 @@ class _MapPainter extends CustomPainter {
       tp.paint(canvas, bp - Offset(tp.width / 2, tp.height / 2));
     } else if (exploreDir != null) {
       // dotted hint towards the stronger side found at the start
-      final a = (exploreDir! - (northUp ? 0 : heading) - 90) * pi / 180;
+      final a = (exploreDir! - ref - 90) * pi / 180;
       final dir = Offset(cos(a), sin(a));
       final dash = Paint()
         ..color = you.withValues(alpha: 0.6)
@@ -653,7 +674,7 @@ class _MapPainter extends CustomPainter {
     // you: dot + view cone (forward = up, or your real heading when north-up)
     canvas.save();
     canvas.translate(c.dx, c.dy);
-    if (northUp) canvas.rotate(heading * pi / 180);
+    if (northUp) canvas.rotate((heading - (axis ?? 0)) * pi / 180);
     final cone = Path()
       ..moveTo(0, 0)
       ..lineTo(-18, -34)
@@ -662,14 +683,6 @@ class _MapPainter extends CustomPainter {
     canvas.drawPath(cone, Paint()..color = you.withValues(alpha: 0.22));
     canvas.restore();
 
-    // north marker when the map is fixed
-    if (northUp) {
-      final tp = TextPainter(
-        text: TextSpan(text: 'N', style: TextStyle(color: you, fontSize: 13, fontWeight: FontWeight.w800)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, Offset(size.width / 2 - tp.width / 2, 8));
-    }
     canvas.drawCircle(c, 11, Paint()..color = Colors.white);
     canvas.drawCircle(c, 8, Paint()..color = you);
 
