@@ -8,9 +8,8 @@ import '../core/i18n.dart';
 import '../services/live_monitor.dart';
 import 'widgets.dart';
 
-/// Signal meter with beeps and a "warmer / colder" compass:
-/// turning slowly on the spot, your body shadows the signal, so the
-/// direction with the strongest reading points roughly towards the router.
+/// "Treasure map" signal finder: counts steps + compass heading to draw your
+/// path coloured by signal, remembers the best spot and points you back to it.
 class SignalFinderPage extends StatefulWidget {
   const SignalFinderPage({super.key});
 
@@ -18,47 +17,53 @@ class SignalFinderPage extends StatefulWidget {
   State<SignalFinderPage> createState() => _SignalFinderPageState();
 }
 
-class _Sector {
-  double sum = 0;
-  int n = 0;
-  double? get value => n == 0 ? null : sum / n;
-  void clear() {
-    sum = 0;
-    n = 0;
-  }
+class _P {
+  _P(this.x, this.y, this.rssi);
+  final double x; // metres, east
+  final double y; // metres, north
+  final double rssi;
 }
 
 class _SignalFinderPageState extends State<SignalFinderPage> {
-  static const _sectors = 12; // 30° each
-  static const _expire = Duration(seconds: 25);
+  static const _stepLen = 0.7; // metres
+  static const _sectors = 12;
 
   Timer? _read;
   Timer? _beep;
-  Timer? _compassTimer;
+  Timer? _sensors;
   double? _smooth;
   int? _min;
   int? _max;
   String? _ssid;
   bool _sound = true;
   bool _hasCompass = false;
-  double? _heading; // smoothed, degrees
-  final List<_Sector> _map = List.generate(_sectors, (_) => _Sector());
-  final List<(DateTime, double)> _recent = [];
+  double? _heading;
+
+  // mesh
   String? _bssid;
   String? _band;
   int? _channel;
-  final Map<String, int> _nodes = {}; // bssid -> 0,1,2… (Nod A, B, C)
+  final Map<String, int> _nodes = {};
   String? _roamMsg;
   DateTime? _roamAt;
 
-  // Locked target (world heading) once a full turn is done.
-  double? _target;
-  double _gain = 0; // dB better towards target
-  double? _lockRssi;
-  double _arrowTurns = 0; // continuous, so the arrow never spins the long way
-  int _dir = 0; // 0 ahead, 1 right, 2 behind, 3 left
-  int _dirCandidate = 0;
+  // path
+  double _x = 0, _y = 0;
+  int? _lastSteps;
+  int _walked = 0;
+  final List<_P> _trail = [];
+
+  // one-time start turn (optional): which way to start exploring
+  final List<double> _sum = List.filled(_sectors, 0);
+  final List<int> _cnt = List.filled(_sectors, 0);
+  double? _exploreDir;
+  bool _calibDone = false;
+
+  // arrow
+  double _arrowTurns = 0;
+  int _dir = 0, _dirCand = 0;
   DateTime _dirSince = DateTime.now();
+  int _tickN = 0;
 
   @override
   void initState() {
@@ -70,94 +75,89 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
     Compass.start().then((ok) {
       if (!mounted) return;
       setState(() => _hasCompass = ok);
-      if (ok) {
-        _compassTimer = Timer.periodic(const Duration(milliseconds: 60), (_) => _readHeading());
-      }
+      if (ok) _sensors = Timer.periodic(const Duration(milliseconds: 60), (_) => _readSensors());
     });
   }
 
-  Future<void> _readHeading() async {
+  @override
+  void dispose() {
+    _read?.cancel();
+    _beep?.cancel();
+    _sensors?.cancel();
+    Compass.stop();
+    super.dispose();
+  }
+
+  // ------------------------------------------------------------------ sensors
+  Future<void> _readSensors() async {
     final h = await Compass.heading();
+    int? steps;
+    if (_tickN++ % 3 == 0) steps = await Compass.steps();
     if (!mounted || h == null) return;
     setState(() {
       final cur = _heading;
-      if (cur == null) {
-        _heading = h;
-      } else {
-        final d = ((h - cur + 540) % 360) - 180; // shortest way
-        _heading = (cur + d * 0.2 + 360) % 360;
-      }
-      final t = _target;
-      if (t != null) {
-        final rel = (t - _heading! + 360) % 360;
-        final want = rel / 360;
-        var diff = (want - _arrowTurns) % 1.0;
-        if (diff > 0.5) diff -= 1.0;
-        if (diff < -0.5) diff += 1.0;
-        _arrowTurns += diff;
-        // signed angle -180..180 → direction bucket, debounced 0.6 s
-        final sgn = ((rel + 180) % 360) - 180;
-        final cand = sgn.abs() <= 35
-            ? 0
-            : sgn.abs() >= 145
-                ? 2
-                : sgn > 0
-                    ? 1
-                    : 3;
-        final now = DateTime.now();
-        if (cand != _dirCandidate) {
-          _dirCandidate = cand;
-          _dirSince = now;
-        } else if (cand != _dir && now.difference(_dirSince).inMilliseconds >= 600) {
-          _dir = cand;
-          HapticFeedback.selectionClick();
+      _heading = cur == null ? h : (cur + (((h - cur + 540) % 360) - 180) * 0.2 + 360) % 360;
+
+      if (steps != null) {
+        final last = _lastSteps;
+        _lastSteps = steps;
+        if (last != null && steps > last && _smooth != null) {
+          final rad = _heading! * pi / 180;
+          for (var i = 0; i < steps - last; i++) {
+            _x += sin(rad) * _stepLen;
+            _y += cos(rad) * _stepLen;
+            _walked++;
+            _trail.add(_P(_x, _y, _smooth!));
+          }
+          if (_trail.length > 600) _trail.removeRange(0, _trail.length - 600);
+          if (_walked >= 3) _calibDone = true; // started walking: skip the turn
         }
       }
+      _updateArrow();
     });
   }
 
-  void _recalibrate() {
-    for (final sec in _map) {
-      sec.clear();
-    }
-    _target = null;
-    _lockRssi = null;
-    _gain = 0;
+  /// World bearing (deg) the arrow should point to, or null.
+  double? get _targetBearing {
+    final b = _best;
+    if (b != null) return (atan2(b.x - _x, b.y - _y) * 180 / pi + 360) % 360;
+    return _exploreDir;
   }
 
-  /// After enough of the circle is measured, lock the best direction.
-  void _tryLock() {
-    final vals = [for (final s in _map) s.value];
-    final measured = vals.whereType<double>().length;
-    if (measured < 10) return;
-    // smooth with neighbours to resist noise
-    final score = <double?>[];
-    for (var i = 0; i < _sectors; i++) {
-      final v = vals[i];
-      if (v == null) {
-        score.add(null);
-        continue;
-      }
-      final l = vals[(i - 1 + _sectors) % _sectors] ?? v;
-      final r = vals[(i + 1) % _sectors] ?? v;
-      score.add(v * 0.5 + l * 0.25 + r * 0.25);
-    }
-    final ok = score.whereType<double>().toList();
-    final best = ok.reduce(max), worst = ok.reduce(min);
-    if (best - worst < 4) return; // flat: no meaningful direction
-    final i = score.indexOf(best);
-    _target = i * (360 / _sectors) + 360 / _sectors / 2;
-    _gain = best - worst;
-    _lockRssi = _smooth;
-    _dir = _dirCandidate = 0;
-    HapticFeedback.mediumImpact();
+  _P? get _best {
+    if (_trail.length < 4 || _smooth == null) return null;
+    final b = _trail.reduce((a, c) => c.rssi > a.rssi ? c : a);
+    final d = sqrt(pow(b.x - _x, 2) + pow(b.y - _y, 2));
+    if (d < 1.2 || b.rssi - _smooth! < 3) return null; // you're already there
+    return b;
   }
 
+  void _updateArrow() {
+    final t = _targetBearing;
+    final h = _heading;
+    if (t == null || h == null) return;
+    final rel = (t - h + 360) % 360;
+    var diff = (rel / 360 - _arrowTurns) % 1.0;
+    if (diff > 0.5) diff -= 1.0;
+    if (diff < -0.5) diff += 1.0;
+    _arrowTurns += diff;
+    final sgn = ((rel + 180) % 360) - 180;
+    final cand = sgn.abs() <= 35 ? 0 : sgn.abs() >= 145 ? 2 : sgn > 0 ? 1 : 3;
+    final now = DateTime.now();
+    if (cand != _dirCand) {
+      _dirCand = cand;
+      _dirSince = now;
+    } else if (cand != _dir && now.difference(_dirSince).inMilliseconds >= 600) {
+      _dir = cand;
+      HapticFeedback.selectionClick();
+    }
+  }
+
+  // ------------------------------------------------------------------ wifi
   Future<void> _tick() async {
     final s = await LiveWifi.read();
     if (!mounted || s?.rssi == null) return;
     final r = s!.rssi!;
-    final now = DateTime.now();
     final b = s.bssid;
     if (b != null) {
       final first = _nodes.isEmpty;
@@ -173,18 +173,23 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
       _smooth = _smooth == null ? r.toDouble() : _smooth! * 0.6 + r * 0.4;
       _min = _min == null ? r : min(_min!, r);
       _max = _max == null ? r : max(_max!, r);
-      _recent.add((now, r.toDouble()));
-      _recent.removeWhere((p) => now.difference(p.$1).inSeconds > 6);
+      if (_trail.isEmpty) _trail.add(_P(0, 0, _smooth!));
+
+      // optional start turn, only while standing still
       final h = _heading;
-      if (h != null && _target == null) {
-        _map[(h / (360 / _sectors)).floor() % _sectors]
-          ..sum += r
-          ..n += 1;
-        _tryLock();
+      if (_hasCompass && !_calibDone && h != null) {
+        final i = (h / (360 / _sectors)).floor() % _sectors;
+        _sum[i] += r;
+        _cnt[i]++;
+        if (_cnt.where((c) => c > 0).length >= 10) {
+          final avg = [for (var k = 0; k < _sectors; k++) _cnt[k] == 0 ? null : _sum[k] / _cnt[k]];
+          final ok = avg.whereType<double>();
+          final best = ok.reduce(max), worst = ok.reduce(min);
+          if (best - worst >= 3) _exploreDir = avg.indexOf(best) * 30.0 + 15;
+          _calibDone = true;
+          HapticFeedback.mediumImpact();
+        }
       }
-      // walked a few metres (signal changed a lot): ask for a new turn
-      final lock = _lockRssi;
-      if (_target != null && lock != null && (_smooth! - lock).abs() >= 7) _recalibrate();
     });
   }
 
@@ -193,13 +198,10 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
   void _onRoam(String from, String to, String? band) {
     HapticFeedback.heavyImpact();
     if (_sound) LiveWifi.tone(9);
-    // new access point: old directions are no longer valid
-    _recalibrate();
     _roamMsg = tr('Te-ai mutat de pe ${_node(from)} pe ${_node(to)}${band != null ? ' ($band)' : ''}',
         'Switched from ${_node(from)} to ${_node(to)}${band != null ? ' ($band)' : ''}');
     _roamAt = DateTime.now();
   }
-
 
   int get _percent => _smooth == null ? 0 : (2 * (_smooth! + 100)).clamp(0, 100).round();
 
@@ -210,70 +212,104 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
       if (!mounted) return;
       if (_sound && _smooth != null) {
         LiveWifi.tone((_percent / 11.2).ceil().clamp(1, 9).toInt());
-        HapticFeedback.selectionClick();
       }
       _scheduleBeep();
     });
   }
 
-  @override
-  void dispose() {
-    _read?.cancel();
-    _beep?.cancel();
-    _compassTimer?.cancel();
-    Compass.stop();
-    super.dispose();
+  void _reset() {
+    _x = _y = 0;
+    _walked = 0;
+    _trail.clear();
+    _min = _max = null;
+    _exploreDir = null;
+    _calibDone = false;
+    for (var i = 0; i < _sectors; i++) {
+      _sum[i] = 0;
+      _cnt[i] = 0;
+    }
   }
 
-  Color _color(ColorScheme cs) => _percent >= 80
+  Color _sigColor(double v, ColorScheme cs) => v >= -60
       ? Colors.green.shade600
-      : _percent >= 55
+      : v >= -70
           ? Colors.lightGreen.shade700
-          : _percent >= 35
+          : v >= -78
               ? Colors.orange.shade700
               : cs.error;
 
-  String get _label => _percent >= 80
-      ? tr('Excelent', 'Excellent')
-      : _percent >= 55
-          ? tr('Bun', 'Good')
-          : _percent >= 35
-              ? tr('Slab', 'Weak')
-              : tr('Foarte slab', 'Very weak');
-
-  int get _trend {
-    if (_recent.length < 6) return 0;
-    final first = _recent.take(3).map((e) => e.$2).reduce((a, b) => a + b) / 3;
-    final last = _recent.skip(_recent.length - 3).map((e) => e.$2).reduce((a, b) => a + b) / 3;
-    if (last - first >= 3) return 1;
-    if (first - last >= 3) return -1;
-    return 0;
-  }
-
+  // ------------------------------------------------------------------ UI
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final c = _color(cs);
-    final trend = _trend;
-    final measured = _map.where((x) => x.n > 0).length;
-    final found = _hasCompass && _target != null;
-    final facing = found && _dir == 0;
-    final flat = _hasCompass && !found && measured >= _sectors;
-    final dirText = !found
-        ? ''
-        : switch (_dir) {
-            0 => tr('Înainte! Mergi în direcția asta', 'Straight ahead! Walk this way'),
-            1 => tr('Întoarce-te la dreapta', 'Turn right'),
-            2 => tr('Întoarce-te', 'Turn around'),
-            _ => tr('Întoarce-te la stânga', 'Turn left'),
-          };
-    final showRoam = _roamMsg != null &&
-        _roamAt != null &&
-        DateTime.now().difference(_roamAt!).inSeconds < 10;
+
+    if (_smooth == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(tr('Caută semnal', 'Signal finder'))),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Text(
+                tr('Conectează-te la o rețea Wi-Fi ca să măsori semnalul.',
+                    'Connect to a Wi-Fi network to measure the signal.'),
+                textAlign: TextAlign.center,
+                style: tt.bodyLarge),
+          ),
+        ),
+      );
+    }
+
+    final c = _sigColor(_smooth!, cs);
+    final best = _best;
+    final target = _targetBearing;
+    final calibrating = _hasCompass && !_calibDone;
+    final measured = _cnt.where((k) => k > 0).length;
+    final dirWord = switch (_dir) {
+      0 => tr('înainte', 'straight ahead'),
+      1 => tr('la dreapta', 'to your right'),
+      2 => tr('în spate', 'behind you'),
+      _ => tr('la stânga', 'to your left'),
+    };
+
+    final String title;
+    final String sub;
+    if (!_hasCompass) {
+      title = tr('Plimbă-te prin casă', 'Walk around');
+      sub = tr('Bipuri mai rapide și mai ascuțite = semnal mai bun.', 'Faster, higher beeps = better signal.');
+    } else if (calibrating) {
+      title = tr('Rotește-te o dată pe loc', 'Turn around once');
+      sub = tr('Ca să știu în ce parte să pornești (${min(measured, 10)}/10). Sau pur și simplu începe să mergi.',
+          'So I know which way to start (${min(measured, 10)}/10). Or just start walking.');
+    } else if (best != null) {
+      final d = sqrt(pow(best.x - _x, 2) + pow(best.y - _y, 2));
+      title = _dir == 0
+          ? tr('Mergi înainte spre ⭐', 'Walk ahead to the ⭐')
+          : tr('Cel mai bun loc e $dirWord', 'The best spot is $dirWord');
+      sub = tr('${best.rssi.round()} dBm, la ~${d.round()} m. Ești acum la ${_smooth!.round()} dBm.',
+          '${best.rssi.round()} dBm, ~${d.round()} m away. You are at ${_smooth!.round()} dBm now.');
+    } else if (_walked >= 3) {
+      title = tr('Ești în cel mai bun loc găsit', 'You are at the best spot so far');
+      sub = target != null
+          ? tr('Explorează și $dirWord — acolo părea semnal mai bun la început.',
+              'Also explore $dirWord — it looked better there at the start.')
+          : tr('Explorează și alte camere; ⭐ marchează cel mai bun loc.',
+              'Explore other rooms; the ⭐ marks the best spot.');
+    } else if (target != null) {
+      title = _dir == 0
+          ? tr('Pornește înainte', 'Start walking ahead')
+          : tr('Pornește $dirWord', 'Start walking $dirWord');
+      sub = tr('De acolo vine semnalul mai puternic. Harta se desenează din pașii tăi.',
+          'The signal is stronger that way. The map is drawn from your steps.');
+    } else {
+      title = tr('Începe să mergi', 'Start walking');
+      sub = tr('Semnalul e la fel în jur. Harta se desenează din pașii tăi.',
+          'Signal is similar all around. The map is drawn from your steps.');
+    }
+
+    final showRoam = _roamMsg != null && _roamAt != null && DateTime.now().difference(_roamAt!).inSeconds < 10;
     final nodeLine = [
-      if (_bssid != null)
-        _nodes.length > 1 ? _node(_bssid!) : 'AP …${_bssid!.substring(9)}',
+      if (_bssid != null) _nodes.length > 1 ? _node(_bssid!) : 'AP …${_bssid!.substring(9)}',
       if (_band != null) _band!,
       if (_channel != null) '${tr('canal', 'ch')} $_channel',
     ].join(' · ');
@@ -283,238 +319,305 @@ class _SignalFinderPageState extends State<SignalFinderPage> {
         title: Text(tr('Caută semnal', 'Signal finder')),
         actions: [
           IconButton(
+            tooltip: tr('Ia-o de la capăt', 'Start over'),
+            icon: const Icon(Icons.restart_alt),
+            onPressed: () => setState(_reset),
+          ),
+          IconButton(
             tooltip: _sound ? tr('Fără sunet', 'Mute') : tr('Cu sunet', 'Sound on'),
             icon: Icon(_sound ? Icons.volume_up : Icons.volume_off),
             onPressed: () => setState(() => _sound = !_sound),
           ),
         ],
       ),
-      body: _smooth == null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Text(
-                  tr('Conectează-te la o rețea Wi-Fi ca să măsori semnalul.',
-                      'Connect to a Wi-Fi network to measure the signal.'),
-                  textAlign: TextAlign.center,
-                  style: tt.bodyLarge,
+      body: MaxWidth(
+        width: 520,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+          children: [
+            // ------------------------------------------------ live value
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(_ssid ?? 'Wi-Fi',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    if (nodeLine.isNotEmpty)
+                      Text(nodeLine, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                  ]),
+                ),
+                Text('${_smooth!.round()}',
+                    style: tt.displaySmall?.copyWith(
+                        color: c, fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
+                const SizedBox(width: 4),
+                Text('dBm', style: tt.titleSmall?.copyWith(color: cs.onSurfaceVariant)),
+              ],
+            ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: showRoam
+                  ? Container(
+                      key: const ValueKey('roam'),
+                      margin: const EdgeInsets.only(top: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(color: cs.tertiaryContainer, borderRadius: BorderRadius.circular(14)),
+                      child: Row(children: [
+                        Icon(Icons.swap_horiz, color: cs.onTertiaryContainer),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(_roamMsg!,
+                              style: tt.bodyMedium
+                                  ?.copyWith(color: cs.onTertiaryContainer, fontWeight: FontWeight.w600)),
+                        ),
+                      ]),
+                    )
+                  : const SizedBox(key: ValueKey('none'), height: 0),
+            ),
+            const SizedBox(height: 12),
+
+            // ------------------------------------------------ map
+            if (_hasCompass)
+              AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.4)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(children: [
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: _MapPainter(
+                          trail: _trail,
+                          x: _x,
+                          y: _y,
+                          heading: _heading ?? 0,
+                          best: best,
+                          exploreDir: best == null ? target : null,
+                          grid: cs.outlineVariant.withValues(alpha: 0.5),
+                          you: cs.primary,
+                          text: cs.onSurfaceVariant,
+                          colorFor: (v) => _sigColor(v, cs),
+                          calibrating: calibrating ? min(measured, 10) / 10 : null,
+                        ),
+                      ),
+                    ),
+                    if (target != null && !calibrating)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: Container(
+                          width: 64,
+                          height: 64,
+                          decoration: BoxDecoration(
+                            color: (_dir == 0 ? Colors.green.shade600 : cs.primary).withValues(alpha: 0.14),
+                            shape: BoxShape.circle,
+                          ),
+                          child: AnimatedRotation(
+                            turns: _arrowTurns,
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOut,
+                            child: Icon(Icons.navigation,
+                                size: 40, color: _dir == 0 ? Colors.green.shade600 : cs.primary),
+                          ),
+                        ),
+                      ),
+                  ]),
                 ),
               ),
-            )
-          : MaxWidth(
-              width: 520,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-                children: [
-                  // ---------------------------------------------- network / node
-                  if (_ssid != null)
-                    Text(_ssid!,
-                        textAlign: TextAlign.center,
-                        style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-                  if (nodeLine.isNotEmpty)
-                    Text(nodeLine,
-                        textAlign: TextAlign.center,
-                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
-                    child: showRoam
-                        ? Container(
-                            key: const ValueKey('roam'),
-                            margin: const EdgeInsets.only(top: 10),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: cs.tertiaryContainer,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Row(children: [
-                              Icon(Icons.swap_horiz, color: cs.onTertiaryContainer),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(_roamMsg!,
-                                    style: tt.bodyMedium?.copyWith(
-                                        color: cs.onTertiaryContainer, fontWeight: FontWeight.w600)),
-                              ),
-                            ]),
-                          )
-                        : const SizedBox(key: ValueKey('none'), height: 0),
-                  ),
-                  const SizedBox(height: 12),
+            const SizedBox(height: 12),
 
-                  // ---------------------------------------------- dial
-                  AspectRatio(
-                    aspectRatio: 1,
-                    child: CustomPaint(
-                      painter: _FinderPainter(
-                        progress: _hasCompass && !found ? measured / 10 : null,
-                        value: _percent / 100,
-                        valueColor: c,
-                        track: cs.surfaceContainerHighest,
-                        accent: cs.primary,
-                      ),
-                      child: Center(
-                        child: found
-                            ? Column(mainAxisSize: MainAxisSize.min, children: [
-                                AnimatedRotation(
-                                  turns: _arrowTurns,
-                                  duration: const Duration(milliseconds: 220),
-                                  curve: Curves.easeOut,
-                                  child: Icon(Icons.navigation,
-                                      size: 120, color: facing ? Colors.green.shade600 : cs.primary),
-                                ),
-                                const SizedBox(height: 4),
-                                Text('${_smooth!.round()} dBm',
-                                    style: tt.titleLarge?.copyWith(
-                                        color: c,
-                                        fontWeight: FontWeight.w700,
-                                        fontFeatures: const [FontFeature.tabularFigures()])),
-                              ])
-                            : Column(mainAxisSize: MainAxisSize.min, children: [
-                                Text('${_smooth!.round()}',
-                                    style: tt.displayLarge?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                      color: c,
-                                      fontFeatures: const [FontFeature.tabularFigures()],
-                                    )),
-                                Text('dBm', style: tt.titleMedium?.copyWith(color: cs.onSurfaceVariant)),
-                                const SizedBox(height: 6),
-                                Row(mainAxisSize: MainAxisSize.min, children: [
-                                  Text('$_label · $_percent%',
-                                      style: tt.titleMedium?.copyWith(color: c, fontWeight: FontWeight.w600)),
-                                  const SizedBox(width: 6),
-                                  Icon(
-                                    trend > 0
-                                        ? Icons.trending_up
-                                        : trend < 0
-                                            ? Icons.trending_down
-                                            : Icons.trending_flat,
-                                    color: trend > 0
-                                        ? Colors.green.shade600
-                                        : trend < 0
-                                            ? cs.error
-                                            : cs.onSurfaceVariant,
-                                  ),
-                                ]),
-                              ]),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ---------------------------------------------- instruction
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: found
-                          ? (facing ? Colors.green.shade600.withValues(alpha: 0.14) : cs.primaryContainer)
-                          : cs.secondaryContainer,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Column(children: [
-                      Text(
-                        !_hasCompass
-                            ? tr('Plimbă-te prin casă', 'Walk around')
-                            : found
-                                ? dirText
-                                : tr('Rotește-te încet pe loc', 'Turn slowly on the spot'),
-                        textAlign: TextAlign.center,
-                        style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        !_hasCompass
-                            ? tr('Bipuri mai rapide și mai ascuțite = semnal mai bun.',
-                                'Faster, higher beeps = better signal.')
-                            : found
-                                ? tr('Acolo semnalul e cu ~${_gain.round()} dB mai bun. Direcția rămâne fixă; după ce te muți, îți cer o tură nouă.',
-                                    'About ${_gain.round()} dB better that way. The direction stays fixed; after you move, you\'ll be asked for a new turn.')
-                                : flat
-                                    ? tr('Semnalul e la fel în toate direcțiile. Fă câțiva pași și încearcă din nou.',
-                                        'Same signal in every direction. Take a few steps and try again.')
-                                    : tr('Ține telefonul în față și fă o tură completă: ${min(measured, 10)} / 10',
-                                        'Hold the phone in front of you and make a full turn: ${min(measured, 10)} / 10'),
-                        textAlign: TextAlign.center,
-                        style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-                      ),
-                    ]),
-                  ),
-                  const SizedBox(height: 12),
-                  TableCard(margin: EdgeInsets.zero, children: [
-                    InfoRow(Icons.arrow_upward, tr('Cel mai bun', 'Best'), '$_max dBm', copy: false),
-                    InfoRow(Icons.arrow_downward, tr('Cel mai slab', 'Worst'), '$_min dBm', copy: false),
-                    if (_nodes.length > 1)
-                      InfoRow(Icons.hub_outlined, tr('Noduri mesh văzute', 'Mesh nodes seen'),
-                          '${_nodes.length}', copy: false),
-                  ]),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () => setState(() {
-                      _min = null;
-                      _max = null;
-                      _recalibrate();
-                    }),
-                    icon: const Icon(Icons.restart_alt),
-                    label: Text(tr('Caută din nou', 'Search again')),
-                  ),
-                ],
+            // ------------------------------------------------ instruction
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: best != null && _dir == 0
+                    ? Colors.green.shade600.withValues(alpha: 0.14)
+                    : cs.secondaryContainer,
+                borderRadius: BorderRadius.circular(18),
               ),
+              child: Column(children: [
+                Text(title,
+                    textAlign: TextAlign.center, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(sub,
+                    textAlign: TextAlign.center, style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
+              ]),
             ),
+            const SizedBox(height: 12),
+            TableCard(margin: EdgeInsets.zero, children: [
+              InfoRow(Icons.arrow_upward, tr('Cel mai bun', 'Best'), '$_max dBm', copy: false),
+              InfoRow(Icons.arrow_downward, tr('Cel mai slab', 'Worst'), '$_min dBm', copy: false),
+              if (_walked > 0)
+                InfoRow(Icons.directions_walk, tr('Distanță parcursă', 'Distance walked'),
+                    '~${(_walked * _stepLen).round()} m', copy: false),
+              if (_nodes.length > 1)
+                InfoRow(Icons.hub_outlined, tr('Noduri mesh văzute', 'Mesh nodes seen'), '${_nodes.length}',
+                    copy: false),
+            ]),
+            const SizedBox(height: 8),
+            Text(
+              tr('Ține telefonul în față, în direcția în care mergi. Poziția e estimată din pași, deci e aproximativă.',
+                  'Hold the phone in front of you, pointing where you walk. Position is estimated from steps, so it is approximate.'),
+              textAlign: TextAlign.center,
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-/// Inner arc = signal strength. While calibrating, an outer ring fills
-/// as you turn (how much of the full circle has been measured).
-class _FinderPainter extends CustomPainter {
-  _FinderPainter({
-    required this.progress,
-    required this.value,
-    required this.valueColor,
-    required this.track,
-    required this.accent,
+/// Heading-up map: you are in the centre, forward is up. Path dots coloured
+/// by signal, ⭐ = best spot, dashed line to it.
+class _MapPainter extends CustomPainter {
+  _MapPainter({
+    required this.trail,
+    required this.x,
+    required this.y,
+    required this.heading,
+    required this.best,
+    required this.exploreDir,
+    required this.grid,
+    required this.you,
+    required this.text,
+    required this.colorFor,
+    required this.calibrating,
   });
 
-  final double? progress;
-  final double value;
-  final Color valueColor;
-  final Color track;
-  final Color accent;
+  final List<_P> trail;
+  final double x, y, heading;
+  final _P? best;
+  final double? exploreDir;
+  final Color grid, you, text;
+  final Color Function(double) colorFor;
+  final double? calibrating;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = min(size.width, size.height) / 2 - 10;
-    final w = r * 0.06;
-
-    void arc(double radius, double start, double sweep, Color color, double width) {
-      canvas.drawArc(
-        Rect.fromCircle(center: c, radius: radius),
-        start,
-        sweep,
-        false,
-        Paint()
-          ..color = color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = width
-          ..strokeCap = StrokeCap.round,
-      );
+    final c = Offset(size.width / 2, size.height * 0.58);
+    // scale: fit trail, at least 4 m radius visible
+    var maxD = 4.0;
+    for (final p in trail) {
+      maxD = max(maxD, sqrt(pow(p.x - x, 2) + pow(p.y - y, 2)) + 1);
+    }
+    final scale = (size.width * 0.42) / maxD; // px per metre
+    final rot = -heading * pi / 180;
+    Offset toScreen(double px, double py) {
+      final dx = px - x, dy = py - y;
+      final rx = dx * cos(rot) - dy * sin(rot);
+      final ry = dx * sin(rot) + dy * cos(rot);
+      return Offset(c.dx + rx * scale, c.dy - ry * scale);
     }
 
-    // strength arc (270°)
-    const start = 135 * pi / 180;
-    const sweep = 270 * pi / 180;
-    final rIn = r - w * 3;
-    arc(rIn, start, sweep, track, w);
-    if (value > 0) arc(rIn, start, sweep * value, valueColor, w);
+    // distance rings
+    final gp = Paint()
+      ..color = grid
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final step = maxD > 12 ? 5.0 : 2.0;
+    for (var r = step; r <= maxD; r += step) {
+      canvas.drawCircle(c, r * scale, gp);
+      final tp = TextPainter(
+        text: TextSpan(text: '${r.round()} m', style: TextStyle(color: text, fontSize: 10)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, c + Offset(4, -r * scale - tp.height));
+    }
 
-    // calibration ring
-    final p = progress;
-    if (p != null) {
-      arc(r, -pi / 2, 2 * pi, track.withValues(alpha: 0.6), w * 0.6);
-      if (p > 0) arc(r, -pi / 2, 2 * pi * p.clamp(0.0, 1.0).toDouble(), accent, w * 0.6);
+    // path
+    if (trail.length > 1) {
+      for (var i = 1; i < trail.length; i++) {
+        final a = toScreen(trail[i - 1].x, trail[i - 1].y), b = toScreen(trail[i].x, trail[i].y);
+        canvas.drawLine(
+            a,
+            b,
+            Paint()
+              ..color = colorFor(trail[i].rssi).withValues(alpha: 0.85)
+              ..strokeWidth = 6
+              ..strokeCap = StrokeCap.round);
+      }
+    }
+    if (trail.isNotEmpty) {
+      final s = toScreen(trail.first.x, trail.first.y);
+      canvas.drawCircle(s, 5, Paint()..color = text);
+    }
+
+    // best spot + dashed line
+    final b = best;
+    if (b != null) {
+      final bp = toScreen(b.x, b.y);
+      final dist = (bp - c).distance;
+      if (dist > 1) {
+        final dir = (bp - c) / dist;
+        final dash = Paint()
+          ..color = you
+          ..strokeWidth = 2.5
+          ..strokeCap = StrokeCap.round;
+        for (var t = 14.0; t < dist - 14; t += 12) {
+          canvas.drawLine(c + dir * t, c + dir * min(t + 6, dist - 14), dash);
+        }
+      }
+      final tp = TextPainter(
+        text: const TextSpan(text: '⭐', style: TextStyle(fontSize: 26)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, bp - Offset(tp.width / 2, tp.height / 2));
+    } else if (exploreDir != null) {
+      // dotted hint towards the stronger side found at the start
+      final a = (exploreDir! - heading - 90) * pi / 180;
+      final dir = Offset(cos(a), sin(a));
+      final dash = Paint()
+        ..color = you.withValues(alpha: 0.6)
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round;
+      for (var t = 20.0; t < size.width * 0.4; t += 14) {
+        canvas.drawLine(c + dir * t, c + dir * (t + 6), dash);
+      }
+    }
+
+    // you: dot + view cone (forward = up)
+    final cone = Path()
+      ..moveTo(c.dx, c.dy)
+      ..lineTo(c.dx - 18, c.dy - 34)
+      ..arcToPoint(Offset(c.dx + 18, c.dy - 34), radius: const Radius.circular(40))
+      ..close();
+    canvas.drawPath(cone, Paint()..color = you.withValues(alpha: 0.18));
+    canvas.drawCircle(c, 11, Paint()..color = Colors.white);
+    canvas.drawCircle(c, 8, Paint()..color = you);
+
+    // start-turn progress ring around you
+    final cal = calibrating;
+    if (cal != null) {
+      final rect = Rect.fromCircle(center: c, radius: 26);
+      canvas.drawArc(
+          rect,
+          0,
+          2 * pi,
+          false,
+          Paint()
+            ..color = grid
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 4);
+      canvas.drawArc(
+          rect,
+          -pi / 2,
+          2 * pi * cal,
+          false,
+          Paint()
+            ..color = you
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 4
+            ..strokeCap = StrokeCap.round);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _FinderPainter old) =>
-      old.progress != progress || old.value != value || old.valueColor != valueColor;
+  bool shouldRepaint(covariant _MapPainter old) => true;
 }

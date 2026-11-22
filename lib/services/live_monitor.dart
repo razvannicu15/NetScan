@@ -269,6 +269,15 @@ class Compass {
     } catch (_) {}
   }
 
+  /// Steps counted since [start] (accelerometer based).
+  static Future<int?> steps() async {
+    try {
+      return await _ch.invokeMethod<int>('steps');
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<double?> heading() async {
     try {
       return (await _ch.invokeMethod<num>('heading'))?.toDouble();

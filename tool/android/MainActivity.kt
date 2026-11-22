@@ -77,6 +77,7 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "heading" -> result.success(azimuth)
+                    "steps" -> result.success(steps)
                     "tone" -> {
                         tone(call.argument<Int>("level") ?: 5)
                         result.success(null)
@@ -248,18 +249,48 @@ class MainActivity : FlutterActivity() {
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
 
+    // Simple step detector from the accelerometer (no permission needed).
+    private var steps = 0
+    private var lastStepAt = 0L
+    private var accSmooth = 9.81
+    private var accAbove = false
+    private val stepListener = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent) {
+            val x = e.values[0].toDouble()
+            val y = e.values[1].toDouble()
+            val z = e.values[2].toDouble()
+            val mag = Math.sqrt(x * x + y * y + z * z)
+            accSmooth = accSmooth * 0.75 + mag * 0.25
+            val now = System.currentTimeMillis()
+            if (!accAbove && accSmooth > 11.2 && now - lastStepAt > 320) {
+                accAbove = true
+                lastStepAt = now
+                steps++
+            } else if (accAbove && accSmooth < 10.2) {
+                accAbove = false
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
     private fun compassStart(): Boolean {
         val sm = applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val sensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
             ?: sm.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
             ?: return false
         sm.registerListener(compassListener, sensor, SensorManager.SENSOR_DELAY_GAME)
+        sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+            sm.registerListener(stepListener, it, SensorManager.SENSOR_DELAY_GAME)
+        }
+        steps = 0
         sensorManager = sm
         return true
     }
 
     private fun compassStop() {
         sensorManager?.unregisterListener(compassListener)
+        sensorManager?.unregisterListener(stepListener)
         sensorManager = null
         azimuth = null
     }
